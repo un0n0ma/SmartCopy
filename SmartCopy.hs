@@ -1,162 +1,131 @@
-{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
-module SmartCopy where
 
+module SmartCopyTest where
+
+
+import Control.Monad
+import Control.Applicative
 import GHC.Generics
-import Control.Monad.IO.Class
-import Control.Monad.Identity
-import Data.Monoid
-
 
 -------------------------------------------------------------------------------
--- Datatypes for testing
+-- General Format types
 -------------------------------------------------------------------------------
+data Format m a
+    = Format
+    { fmt_enterDataCon :: CT -> m a
+    , fmt_enterField :: FT ->  m a
+    , fmt_writeValue :: Prim -> m a
+    , fmt_leaveField :: m a
+    , fmt_leaveDataCon :: m a
+    , fmt_nothing :: m a
+    }
 
-data Foo = Foo { bar1 :: Bar, bar2 :: Bar } deriving Generic
-data Bar = Bar Int String deriving Generic
+class FormatMonad m where
+    type ReturnType :: *
+    unPack :: m a -> ReturnType
+    liftFM :: (a -> b) -> m a -> m b
+    returnCons :: CT -> m a
+    returnField :: FT -> m a
+    returnValue :: Prim -> m a
+    leaveField :: m a
+    leaveCons :: m a
+    add :: m a -> m b -> m c
 
-data PatientV1
-    = PatientV1
-    { pat_id :: Int
-    , pat_name :: String
-    , pat_diagnosis :: [String]
-    , pat_number :: String
-    } deriving Generic
+data CFVType = CT
+             | FT
+             | Prim
 
-data SumTest a = Sum1 Int a | Sum2 [SumTest a] | Sum3 deriving Generic
- 
-instance ProcessXml Foo
-instance ProcessXml Bar
-instance ProcessXml PatientV1
-instance ProcessXml a => ProcessXml (SumTest a)
+data CT = Cons String
+data FT = Field Int (Maybe String)
 
-v1 = Foo (Bar 42 "bar1") (Bar 24 "bar2")
-v2 = PatientV1 1234 "Olaf Fischer" ["F22.0", "K50.1"] "0761-1234"
-v3 = Sum2 [Sum1 1 (2 :: Int), Sum1 3 (1 :: Int), Sum2 [], Sum3]
+data Prim = PrimInt Int | PrimChar Char | PrimString String
 
--------------------------------------------------------------------------------
--- GENERICS
--------------------------------------------------------------------------------
 
-encode = encode' 0
+{--
+class AddType t1 t2 where
+    add :: forall (m :: * -> *) b.
+           Format m b -> FormatMonad m => t1 -> t2 -> m b
 
-data PrimValue = PrimInt Int
-               | PrimString String
-               | PrimChar Char
-               deriving (Show, Eq)
-
-class ProcessXml a where
-      encode' :: Int -> a -> IO () --- Int for numbered fields
-      default encode' :: (Generic a, GProcessXml (Rep a))
-                => Int -> a -> IO ()
-      encode' i x = gencode i (from x)
-
-class GProcessXml t where
-      gencode :: Int -> t x -> IO ()
-
-instance ProcessXml PrimValue where
-    encode' _ i = writeValue i
- 
-instance ProcessXml Int where
-    encode' _ i = writeValue (PrimInt i)
-
-instance ProcessXml Char where
-    encode' _ c = writeValue (PrimChar c)
-
-instance ProcessXml String where
-    encode' _ s = writeValue (PrimString (show s))
-
-instance ProcessXml a => ProcessXml [a] where
-    encode' _ [] = return ()
-    encode' i (x:xs) = encode' i x >> encode' i xs
-
------------------------------
--- Gen Instances
------------------------------
-
-instance GProcessXml U1 where
-    gencode _ _ = return ()
-
-instance (GProcessXml a, Constructor c) => GProcessXml (C1 c a) where
-    gencode i m1 = do enterDataCon (conName m1)
-                      gencode 0 (unM1 m1)
-                      leaveDataCon (conName m1)
-
-instance (GProcessXml a, Datatype d) => GProcessXml (D1 d a) where
-    gencode i m1 = gencode 0 (unM1 m1)
-
-instance (GProcessXml a, Selector s) => GProcessXml (S1 s a) where
-    gencode i m1 = do case selName m1 of
-                        "" -> gencode i (unM1 m1)
-                        _ -> 
-                            do enterField i (Just $ selName m1)
-                               gencode i (unM1 m1)
-                               leaveField i (Just $ selName m1)
-
-instance (GProcessXml a, GProcessXml b) => GProcessXml (a :+: b) where
-    gencode i (L1 a) = gencode i a
-    gencode i (R1 a) = gencode i a
-
-instance (GProcessXml a, GProcessXml b) => GProcessXml (a :*: b) where
-    gencode i (a :*: b) = gencode i a >> gencode (i+1) b
-
-instance ProcessXml a => GProcessXml (K1 g a) where
-    gencode i (K1 a) = encode' i a
+instance AddType CT FT where
+    add _ ct ft = (returnCons ct) .>> (returnField ft)
+    --}
 
 -------------------------------------------------------------------------------
---Monads
+-- SmartCopy
+-------------------------------------------------------------------------------
+class SmartCopy a where
+    serialize :: FormatMonad m
+              => a -> Format m b -> m b
+    default serialize :: (FormatMonad m, Generic a, GSmartCopy (Rep a))
+                      => a -> Format m b -> m b
+    serialize a fmt = gserialize (from a) fmt
+    parse :: FormatMonad m => b -> Format m b -> m a
+    default parse :: (FormatMonad m, Generic a, GSmartCopy (Rep a))
+                  =>  b -> Format m b -> m a
+    parse b fmt = undefined
+--    parse b fmt = to `liftFM` (gparse b fmt)
+
+class GSmartCopy t where
+    gserialize :: (FormatMonad m) => t x -> Format m b -> m b
+    gparse :: FormatMonad m => b -> Format m b -> m (t x)
+
+
+instance SmartCopy Int where
+    serialize i fmt = (fmt_writeValue fmt) (PrimInt i)
+    parse b = undefined
+
+instance SmartCopy Char where
+    serialize c fmt = (fmt_writeValue fmt) (PrimChar c)
+    parse b = undefined
+
+instance SmartCopy String where
+    serialize s fmt = (fmt_writeValue fmt) (PrimString s)
+    parse b = undefined
+
+instance SmartCopy a => SmartCopy [a] where
+    serialize [] fmt = fmt_nothing fmt
+    serialize (x:xs) fmt = let h = serialize x fmt 
+                               t = serialize xs fmt
+                           in add h t
+
+-------------------------------------------------------------------------------
+-- GenericInstances
 -------------------------------------------------------------------------------
 
-newtype Contain m = Contain { getBuild :: m } deriving Show
+instance GSmartCopy U1 where
+    gserialize _ fmt = fmt_nothing fmt
 
-instance Monoid (Contain String) where
-    mempty = Contain []
-    mappend ma mb = Contain (getBuild ma ++ getBuild mb)
+instance (GSmartCopy a, Constructor c) => GSmartCopy (C1 c a) where
+    gserialize m1 fmt = let cons = (fmt_enterDataCon fmt) (Cons (conName m1))
+                            inside = gserialize (unM1 m1) fmt
+                        in add cons inside
 
-class Monad m => Format m where
-    enterDataCon :: String -> m ()
-    enterField :: Int -> Maybe String -> m ()
-    writeValue :: PrimValue -> m ()
-    leaveField :: Int -> Maybe String -> m ()
-    leaveDataCon :: String -> m ()
+instance (GSmartCopy a, Datatype d) => GSmartCopy (D1 d a) where
+    gserialize m1 fmt = gserialize (unM1 m1) fmt
 
-instance Format IO where
-    enterDataCon = \s -> 
-            do let xs = "<" `mappend` s `mappend` ">"
-               putStrLn xs
-    enterField = \num ms ->
-        do let s = case ms of
-                     Just a -> a
-                     Nothing -> (show num)
-               xs = "<" `mappend` s `mappend` ">"
-           putStrLn xs
-    writeValue = \s ->
-        case s of
-          PrimInt i -> putStrLn (show i)
-          PrimString s -> putStrLn s
-    leaveField = \num ms ->
-        do let s = case ms of
-                     Just a -> a
-                     Nothing -> (show num)
-               xs = "<\\" `mappend` (show s) `mappend` ">"
-           putStrLn xs
-    leaveDataCon = \s ->
-        do let xs = "<\\" `mappend` s `mappend` ">"
-           putStrLn xs
+instance (GSmartCopy a, Selector s) => GSmartCopy (S1 s a) where
+    gserialize m1 fmt = let field = (fmt_enterField fmt) (Field 0 (Just $ selName m1)) ---- FIX THIS! (Int)
+                            inside = gserialize (unM1 m1) fmt
+                        in add field inside
 
-newtype XmlMonad m = XmlMonad { getXml :: Contain m } deriving Show
+instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :+: b) where
+    gserialize (L1 a) fmt = gserialize a fmt
+    gserialize (R1 a) fmt = gserialize a fmt
 
-runXml :: XmlMonad String -> IO ()
-runXml xml = putStrLn $ getBuild $ getXml xml
+instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :*: b) where
+    gserialize (a :*: b) fmt = add (gserialize a fmt) (gserialize b fmt)
 
-main = do encode v1 
-          encode v2
-          encode v3
+instance SmartCopy a => GSmartCopy (K1 g a) where
+    gserialize (K1 a) fmt = serialize a fmt
