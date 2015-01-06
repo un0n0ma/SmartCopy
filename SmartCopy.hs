@@ -2,21 +2,20 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverlappingInstances #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 
-module SmartCopyTest where
-
+module SmartCopy where
 
 import Control.Monad
 import Control.Applicative
+import Data.Vector as V
 import GHC.Generics
 
 -------------------------------------------------------------------------------
@@ -24,8 +23,8 @@ import GHC.Generics
 -------------------------------------------------------------------------------
 data Format m a
     = Format
-    { fmt_enterDataCon :: CT -> m a
-    , fmt_enterField :: FT ->  m a
+    { fmt_enterDataCon :: CT -> m a -> m a
+    , fmt_enterField :: FT -> m a -> m a
     , fmt_writeValue :: Prim -> m a
     , fmt_leaveField :: m a
     , fmt_leaveDataCon :: m a
@@ -36,8 +35,9 @@ class FormatMonad m where
     type ReturnType :: *
     unPack :: m a -> ReturnType
     liftFM :: (a -> b) -> m a -> m b
-    returnCons :: CT -> m a
-    returnField :: FT -> m a
+    returnEmpty :: m a
+    returnCons :: CT -> m a -> m a
+    returnField :: FT -> m a -> m ReturnType
     returnValue :: Prim -> m a
     leaveField :: m a
     leaveCons :: m a
@@ -48,19 +48,13 @@ data CFVType = CT
              | Prim
 
 data CT = Cons String
-data FT = Field Int (Maybe String)
+data FT = Field Int String
 
-data Prim = PrimInt Int | PrimChar Char | PrimString String
+data Prim = PrimInt Int
+          | PrimChar Char
+          | PrimString String 
+          | forall a. SmartCopy a => PrimArray (V.Vector a)
 
-
-{--
-class AddType t1 t2 where
-    add :: forall (m :: * -> *) b.
-           Format m b -> FormatMonad m => t1 -> t2 -> m b
-
-instance AddType CT FT where
-    add _ ct ft = (returnCons ct) .>> (returnField ft)
-    --}
 
 -------------------------------------------------------------------------------
 -- SmartCopy
@@ -94,7 +88,12 @@ instance SmartCopy String where
     serialize s fmt = (fmt_writeValue fmt) (PrimString s)
     parse b = undefined
 
-instance SmartCopy a => SmartCopy [a] where
+{-
+instance (SmartCopy a, a ~ Prim) => SmartCopy [a] where
+    serialize [] fmt = fmt_nothing fmt
+    serialize xs fmt = (fmt_writeValue fmt) (PrimArray $ fromList xs)
+-}
+instance (SmartCopy a) => SmartCopy [a] where
     serialize [] fmt = fmt_nothing fmt
     serialize (x:xs) fmt = let h = serialize x fmt 
                                t = serialize xs fmt
@@ -108,17 +107,17 @@ instance GSmartCopy U1 where
     gserialize _ fmt = fmt_nothing fmt
 
 instance (GSmartCopy a, Constructor c) => GSmartCopy (C1 c a) where
-    gserialize m1 fmt = let cons = (fmt_enterDataCon fmt) (Cons (conName m1))
+    gserialize m1 fmt = let cons = Cons (conName m1)
                             inside = gserialize (unM1 m1) fmt
-                        in add cons inside
+                        in (fmt_enterDataCon fmt) cons inside
 
 instance (GSmartCopy a, Datatype d) => GSmartCopy (D1 d a) where
     gserialize m1 fmt = gserialize (unM1 m1) fmt
 
 instance (GSmartCopy a, Selector s) => GSmartCopy (S1 s a) where
-    gserialize m1 fmt = let field = (fmt_enterField fmt) (Field 0 (Just $ selName m1)) ---- FIX THIS! (Int)
+    gserialize m1 fmt = let field = (Field 0 (selName m1)) ---- FIX THIS! (Int for field number)
                             inside = gserialize (unM1 m1) fmt
-                        in add field inside
+                        in (fmt_enterField fmt) field inside
 
 instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :+: b) where
     gserialize (L1 a) fmt = gserialize a fmt
