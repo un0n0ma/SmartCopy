@@ -37,7 +37,6 @@ instance Functor JSON where
     fmap f json = undefined
 
 instance SerializedType Value where
-    getType = undefined
 
 instance FormatMonad JSON Value where
     unPack ma = unJSON ma

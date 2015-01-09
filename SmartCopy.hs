@@ -24,7 +24,6 @@ import GHC.Generics
 -------------------------------------------------------------------------------
 
 class SerializedType a where
-    getType :: a
 
 class (SerializedType a, Functor m) => FormatMonad m a where
     unPack :: m b -> a
