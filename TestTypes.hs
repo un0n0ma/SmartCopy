@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 import GHC.Generics
 import Data.Aeson
@@ -17,17 +18,17 @@ data PatientV1
 
 data SumTest a = Sum1 Int a | Sum2 [SumTest a] | Sum3 deriving Generic
 
-instance SmartCopy Foo
-instance SmartCopy Bar
-instance SmartCopy PatientV1
-instance SmartCopy a => SmartCopy (SumTest a)
+instance SmartCopy Foo JSON Value
+instance SmartCopy Bar JSON Value
+instance SmartCopy PatientV1 JSON Value
+instance SmartCopy a JSON Value => SmartCopy (SumTest a) JSON Value
 
 v1 = Foo (Bar 42 "bar1") (Bar 24 "bar2")
 v2 = PatientV1 1234 "Olaf Fischer" ["F22.0", "K50.1"] "0761-1234"
 v3 = Sum2 [Sum1 1 (2 :: Int), Sum1 3 (1 :: Int), Sum2 [], Sum3]
 
-runJSON :: SmartCopy a => a -> IO ()
-runJSON a = print $ unPack (serialize a :: JSON Value)
+runJSON :: SmartCopy a JSON Value => a -> IO ()
+runJSON a = print $ (unPack (serialize a :: JSON Value) :: Value)
 
 main = do runJSON v1
           runJSON v2

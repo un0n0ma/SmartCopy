@@ -1,5 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module JSONTypes where
@@ -28,13 +31,15 @@ array vs = Array $ V.fromList vs
 -- Monad
 -------------------------------------------------------------------------------
 
-newtype JSON a = JSON { unJSON :: Value }
+newtype JSON a = JSON { unJSON :: Value } --- might need something different
 
 instance Functor JSON where
     fmap f json = undefined
 
-instance FormatMonad JSON where
-    type ReturnType = Value
+instance SerializedType Value where
+    getType = undefined
+
+instance FormatMonad JSON Value where
     unPack ma = unJSON ma
     returnEmpty = JSON emptyObject
     enterCons (Cons (PrimString name) tagOrNot) v =
