@@ -31,14 +31,14 @@ array vs = Array $ V.fromList vs
 -- Monad
 -------------------------------------------------------------------------------
 
-newtype JSON a = JSON { unJSON :: Value } --- might need something different
-
+newtype JSVal a = JSVal { unJSVal :: Maybe Value }
+newtype JSON a = JSON { unJSON :: Value } --- we need something like:
+ 
 instance Functor JSON where
-    fmap f json = undefined
+    fmap = undefined
 
-instance SerializedType Value where
-
-instance FormatMonad JSON Value where
+instance FormatMonad JSON where
+    type EncodedType = Value
     unPack ma = unJSON ma
     returnEmpty = JSON emptyObject
     enterCons (Cons (PrimString name) tagOrNot) v =
@@ -72,4 +72,3 @@ instance FormatMonad JSON Value where
                      (Object v2) = unPack j2
                      vals = object $ M.toList $ M.union v1 v2
                  in JSON vals
-

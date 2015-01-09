@@ -3,7 +3,6 @@
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverlappingInstances #-}
@@ -19,23 +18,39 @@ import Control.Applicative
 import qualified Data.Vector as V
 import GHC.Generics
 
+
+-------------------------------------------------------------------------------
+-- Useful SafeCopy types
+-------------------------------------------------------------------------------
+data Kind a where
+    Primitive :: Kind a
+    Base :: Kind a
+    Extension :: (Migrate a) => Proxy (MigrateFrom a) -> Kind a
+
+data Version a = Version Int
+
+class Migrate a where
+    type MigrateFrom a
+    migrate :: MigrateFrom a -> a
+
+data Proxy a = Proxy
+
 -------------------------------------------------------------------------------
 -- General Format types
 -------------------------------------------------------------------------------
 
-class SerializedType a where
-
-class (SerializedType a, Functor m) => FormatMonad m a where
-    unPack :: m b -> a
-    returnEmpty :: m a
-    enterCons :: CT -> m a -> m a
-    enterField :: FT -> m a -> m a
-    openRepetition :: Int -> [m a] -> m a
-    writeValue :: Prim -> m a
-    closeRepetition :: m a
+class Functor m => FormatMonad m where
+    type EncodedType :: *
+    unPack :: m a -> EncodedType
+    returnEmpty :: m EncodedType
+    enterCons :: CT -> m EncodedType -> m EncodedType
+    enterField :: FT -> m EncodedType -> m EncodedType
+    openRepetition :: Int -> [m EncodedType] -> m EncodedType
+    writeValue :: Prim -> m EncodedType
+    closeRepetition :: m EncodedType
     leaveField :: m ()
     leaveCons :: m ()
-    mult :: m a -> m a -> m a
+    mult :: m EncodedType -> m EncodedType -> m EncodedType
 
 data CFVType = CT
              | FT
@@ -52,37 +67,41 @@ type IdNum = Int
 -------------------------------------------------------------------------------
 -- SmartCopy
 -------------------------------------------------------------------------------
-class (SerializedType b, FormatMonad m b) => SmartCopy a m b | m -> b where
-    serialize :: a -> m b
-    default serialize :: (Generic a, GSmartCopy (Rep a) m b)
-                      => a -> m b
+class FormatMonad m => SmartCopy a m where
+    version :: Version a
+    version = Version 0
+    kind :: Kind a
+    kind = Base
+    serialize :: a -> m EncodedType
+    default serialize :: (Generic a, GSmartCopy (Rep a) m)
+                      => a -> m EncodedType
     serialize a = gserialize (from a)
-    parse :: m b -> a
-    default parse :: (Generic a, GSmartCopy (Rep a) m b)
-                  => m b -> a
+    parse :: m EncodedType -> Maybe a
+    default parse :: (Generic a, GSmartCopy (Rep a) m)
+                  => m EncodedType -> Maybe a
     parse b = to (gparse b)
 
-class (SerializedType a, FormatMonad m a) => GSmartCopy t m a | m -> a where
-    gserialize :: t x -> m a
-    gparse :: m a -> (t x)
+class FormatMonad m => GSmartCopy t m where
+    gserialize :: t x -> m EncodedType
+    gparse :: m EncodedType -> (t (Maybe x))
 
-instance (SerializedType a, FormatMonad m a) => SmartCopy Integer m a where
+instance FormatMonad m => SmartCopy Integer m where
     serialize i = writeValue (PrimInt i)
     parse b = undefined
 
-instance (SerializedType a, FormatMonad m a) => SmartCopy Int m a where
+instance FormatMonad m => SmartCopy Int m where
     serialize i = writeValue (PrimInt $ toInteger i)
     parse b = undefined
 
-instance (SerializedType a, FormatMonad m a) => SmartCopy Char m a where
+instance FormatMonad m => SmartCopy Char m where
     serialize c = writeValue (PrimChar c)
     parse b = undefined
 
-instance (SerializedType a, FormatMonad m a) => SmartCopy String m a where
+instance FormatMonad m => SmartCopy String m where
     serialize s = writeValue (PrimString s)
     parse b = undefined
 
-instance (SerializedType b, FormatMonad m b, SmartCopy a m b) => SmartCopy [a] m b where
+instance (FormatMonad m, SmartCopy a m) => SmartCopy [a] m where
     serialize [] = closeRepetition
     serialize a@(x:xs) = let n = length a
                          in openRepetition n (map serialize xs)
@@ -91,33 +110,28 @@ instance (SerializedType b, FormatMonad m b, SmartCopy a m b) => SmartCopy [a] m
 -- GenericInstances
 -------------------------------------------------------------------------------
 
-instance (SerializedType a, FormatMonad m a) => GSmartCopy U1 m a where
+instance FormatMonad m => GSmartCopy U1 m where
     gserialize _ = returnEmpty
 
-instance (SerializedType b, FormatMonad m b, GSmartCopy a m b, Constructor c) =>
-            GSmartCopy (C1 c a) m b where
+instance (FormatMonad m, GSmartCopy a m, Constructor c) => GSmartCopy (C1 c a) m where
     gserialize m1 = let cons = Cons (PrimString $ conName m1) True
                         inside = gserialize (unM1 m1)
                     in enterCons cons inside
 
-instance (SerializedType b, FormatMonad m b, GSmartCopy a m b, Datatype d) =>
-            GSmartCopy (D1 d a) m b where
+instance (FormatMonad m, GSmartCopy a m, Datatype d) => GSmartCopy (D1 d a) m where
     gserialize m1 = gserialize (unM1 m1)
 
-instance (SerializedType b, FormatMonad m b, GSmartCopy a m b, Selector s) => GSmartCopy (S1 s a) m b where
+instance (FormatMonad m, GSmartCopy a m, Selector s) => GSmartCopy (S1 s a) m where
     gserialize m1 = let field = (Field 0 (selName m1)) ---- FIX THIS! (Int for field number)
                         inside = gserialize (unM1 m1)
                     in enterField field inside
 
-instance (SerializedType c, GSmartCopy a m c, GSmartCopy b m c, FormatMonad m c) =>
-            GSmartCopy (a :+: b) m c where
+instance (GSmartCopy a m, GSmartCopy b m, FormatMonad m) => GSmartCopy (a :+: b) m where
     gserialize c@(L1 a) = gserialize a
     gserialize c@(R1 a) = gserialize a
 
-instance (SerializedType c, GSmartCopy a m c, GSmartCopy b m c, FormatMonad m c) =>
-            GSmartCopy (a :*: b) m c where
+instance (GSmartCopy a m, GSmartCopy b m, FormatMonad m) => GSmartCopy (a :*: b) m where
     gserialize (a :*: b) = mult (gserialize a) (gserialize b)
 
-instance (FormatMonad m b, SerializedType b, SmartCopy a m b) =>
-        GSmartCopy (K1 g a) m b where
+instance SmartCopy a m => GSmartCopy (K1 g a) m where
     gserialize (K1 a) = serialize a
