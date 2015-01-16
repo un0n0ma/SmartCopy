@@ -78,7 +78,7 @@ class (Monoid (m EncodedType), Functor m, Monad m) => Format m where
     ---- getFromCons & parseField need different return types.
     getFromCons :: CT -> m EncodedType -> m (Parser Prim)
     parseField :: FT -> [FT] -> m EncodedType -> m (Parser Prim)
-   -- parseRepetition :: m EncodedType -> m (Parser a)
+--    parseRepetition :: m EncodedType -> [m (Parser Prim)]
     parseValue :: m EncodedType -> m (Parser Prim)
 
 -------------------------------------------------------------------------------
@@ -120,17 +120,17 @@ primIsInt :: Num a => Prim -> Either String a
 primIsInt (PrimInt i) = Right $ fromIntegral i
 primIsInt _ = Left "Primitive is not of integral type."
 
-primString :: Parser (Prim -> String)
+primString :: Parser (Prim -> Maybe String)
 primString = pure $ \p ->
                  case p of
-                   PrimString s -> s
-                 -- prim           -> return $ fail ("Expected string primitive. Got: " ++ show prim)
+                   PrimString s -> Just s
+                   _            -> Nothing
 
-primInt :: (Num a) => Parser (Prim -> a)
+primInt :: Num a => Parser (Prim -> Maybe a)
 primInt = pure $ \p -> 
               case p of
-                PrimInt i -> fromIntegral i
-          --      prim      -> fail ("Expected number primitive. Got: " ++ show prim)
+                PrimInt i -> Just $ fromIntegral i
+                _         -> Nothing
 
 -------------------------------------------------------------------------------
 -- SmartCopy
@@ -241,7 +241,7 @@ apP d e
 
 instance Alternative Parser where
     empty = fail "empty"
-    (<|>) = mplus --------- FIX THIS. NEEDED FOR SUMTYPES.
+    (<|>) = mplus
 
 instance MonadPlus Parser where
     mzero = fail "mzero"
@@ -271,6 +271,24 @@ eitherList right list@(e:es) acc
     = case e of
         Right r -> eitherList right es (acc++[r])
         Left l -> Left l
+
+
+----
+-- Operators for error handling of primvalue-conversion
+----
+
+(<.$>) :: (a -> b) -> Parser (Maybe a) -> Parser b
+cons <.$> p = do res <- runParser p fail return
+                 case res of
+                   Just a -> pure $ cons a
+                   Nothing -> empty
+
+(<.*>) :: Parser (a -> b) -> Parser (Maybe a) -> Parser b
+pa <.*> pb = do res1 <- runParser pa fail return
+                res2 <- pb
+                case res2 of
+                  Just a -> pure $ res1 a
+                  Nothing -> empty
 
 -------------------------------------------------------------------------------
 -- Other

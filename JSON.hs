@@ -126,8 +126,7 @@ instance Format JSON where
                              [] -> parseValue $ return Null
 {- FIX THIS: SHOULDN'T RETURN EMPTY.-}
                              _ -> parseField (Field index t) (ct_fields ct) cont
-                       _    -> fail ("Couldn't find constructor " ++ x ++
-                                     " for this datatype. Found " ++ t ++ " instead.") 
+                       _    -> return $ pure PrimUnit --- Error handling at top level
                                    
     parseField ft fields (JSON (Object o)) =
         let name = case ft_name ft of
@@ -168,6 +167,8 @@ instance Format JSON where
            _ ->
                fail ("Failed to parse at value level. Expected primitive.\
                      \ Got: " ++ show val)
+--    parseRepetition (JSON val)
+--        = undefined
 
 {-
 resToMaybe :: Result a -> Maybe a

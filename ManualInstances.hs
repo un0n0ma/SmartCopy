@@ -4,6 +4,7 @@
 import SmartCopy
 import JSON
 import Control.Applicative
+import Control.Exception
 import Data.Monoid
 import Data.Aeson
 import Data.Data
@@ -31,7 +32,7 @@ instance Format m => SmartCopy SomeData m where
             (enterField (Field 1 "sd_2") (writeValue (PrimInt $ toInteger b))) <>
             (enterField (Field 2 "sd_3") (writeValue (PrimInt $ toInteger c))) <>
             (enterField (Field 3 "sd_4") (writeValue (PrimString d))))
-    parse js = runParser (SomeData <$> a <*> b <*> c <*> d) fail return
+    parse js = runParser (SomeData <.$> a <.*> b <.*> c <.*> d) fail return
                where
                  a = primString <*> (unPack $ parseField (Field 0 "sd_1") [] js)
                  b = primInt <*> (unPack $ parseField (Field 1 "sd_2") [] js)
@@ -50,11 +51,13 @@ instance Format m => SmartCopy PrimTest m where
         = enterCons (Cons 0 "PrimTest" False []) (enterField (Field 0 "")
                                               (writeValue (PrimInt $ toInteger a)))
     parse js = let pb = unPack $ parseField (Field 0 "") [] js
-               in runParser (PrimTest <$> (primInt <*> pb)) fail return
+               in runParser (PrimTest <.$>
+                            (primInt <*> pb)) fail return
 
 
 ------------------- More complicated datatype (sumtype) ---------------------
-data SumTest a = Sum1 Int a | Sum2 [SumTest a] | Sum3 | Sum4 Int deriving (Generic, Show, Eq)
+data SumTest a = Sum1 Int a | Sum2 [SumTest a] | Sum3 | Sum4 Int | Sum5 [String] 
+    deriving (Generic, Show, Eq)
 
 st2 :: SumTest Int
 st2 = Sum2 [Sum1 1 2 , Sum1 3 1, Sum2 [], Sum3]
@@ -64,6 +67,9 @@ st1 :: SumTest String
 st1 = Sum1 42 "somestring"
 st3 :: SumTest Int
 st3 = Sum3
+st5 :: SumTest String
+st5 = Sum5 ["eins", "zwei"]
+
 
 instance (Format m, SmartCopy a m) => SmartCopy (SumTest a) m where
     serializeWithIndex (Sum1 i a) _ _ 
@@ -79,14 +85,23 @@ instance (Format m, SmartCopy a m) => SmartCopy (SumTest a) m where
     serializeWithIndex (Sum4 i) _ _ = enterCons (Cons 3 "Sum4" True [])
                                       (enterField (Field 0 "")
                                       (writeValue (PrimInt $ toInteger i)))
+    serializeWithIndex (Sum5 xs) i b
+            = let l = length xs in
+              enterCons (Cons 4 "Sum5" True [])
+              (enterField (Field 0 "")
+              (openRepetition l (map (\x -> serializeWithIndex x i b) xs)))
     parse js = let fields4 = [Field 0 ""]
                    fields3 = []
+                   fields1 = [Field 0 "", Field 1 ""]
+                   fields5 = [Field 0 ""]
+                   a1 = primInt <*> pb1 ----- This needs fixing.
+                   pb1 = unPack $ getFromCons (Cons 1 "Sum1" True fields1) js
                    pb3 =  unPack $ getFromCons (Cons 2 "Sum3" True fields3) js
                    pb4 = unPack $ getFromCons (Cons 3 "Sum4" True fields4) js
-------------------- This needs fixing.
-                   in runParser ((Sum4 <$> (primInt <*> pb4)) <|> (Sum3 <$ pb3))
+                   pb5 = unPack $ getFromCons (Cons 4 "Sum5" True fields5) js
+                   in runParser (((Sum4 <.$> (primInt <*> pb4)) <|>
+                                 (Sum3 <$ pb3))) -- <|>
                                 fail return
-
 
 --- Aeson instances for comparison:
 
@@ -115,5 +130,9 @@ main = do putStrLn "~~ TESTING WITH MANUALLY WRITTEN INSTANCES ~~:\n"
           runJSONEncode st3
           putStrLn "Parseing SumTest (empty cons): "
           print ((parse (serialize st3 :: JSON Value)) :: JSON (SumTest Int))
+          putStrLn "Encoding SumTest (array): "
+          runJSONEncode st5
+          putStrLn "Parseing SumTest (array): "
+          
 
 
