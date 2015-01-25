@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ExplicitForAll #-}
@@ -9,9 +8,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
-{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,11 +16,9 @@
 module SmartCopy where
 
 import Control.Monad
-import "mtl" Control.Monad.State
 import Control.Applicative
 import qualified Data.Vector as V
 import Data.Monoid
-import Generics.Deriving.ConNames
 import GHC.Generics
 import Data.Data hiding (Proxy)
 
@@ -62,13 +57,14 @@ data Proxy a = Proxy
 -- Format class
 -------------------------------------------------------------------------------
 
-class (Functor m, Applicative m, Monad m, MonadState [m EncodedType] Parser) => Format m where
+class (Monoid (m EncodedType), Functor m, Applicative m, Monad m) => Format m where
     type EncodedType :: *
     type EncodedTypeVersioned :: *
     unPack :: m a -> a
     returnEmpty :: m EncodedType
 
 ------ Encoding
+    -- enterCons :: CT -> m ()
     enterCons :: CT -> m EncodedType -> m EncodedType
     enterField :: FT -> Bool -> m EncodedType -> m EncodedType --- Bool: multiple fields
     openRepetition :: Int -> [m EncodedType] -> m EncodedType --- Int for list length (optional)
@@ -79,10 +75,6 @@ class (Functor m, Applicative m, Monad m, MonadState [m EncodedType] Parser) => 
     mult :: m EncodedType -> m EncodedType -> m EncodedType
 
 ------ Parsing
-    parseSingleCons :: CT -> m EncodedType -> Parser a
-    parseSumCons :: (SmartCopy a m, Data a) => CT -> m EncodedType -> StateT [m EncodedType] Parser a
-
-
     -- Lookup constructor of sumtype and construct getter accordingly. 
     -- Need a better idea, this is not going to
     -- work with generics I think.
@@ -91,13 +83,6 @@ class (Functor m, Applicative m, Monad m, MonadState [m EncodedType] Parser) => 
     parseField :: FT -> [FT] -> m EncodedType -> m (Parser Prim)
     parseRepetition :: [FT] -> m EncodedType -> [m (Parser Prim)] --- needs fixing
     parseValue :: m EncodedType -> m (Parser Prim)
-
------- Other
-    pop :: Parser (m EncodedType)
-    pop =
-        do (v:vs) <- get
-           put vs
-           return v
 
 
 -------------------------------------------------------------------------------
@@ -114,7 +99,6 @@ data CT
     , ct_name :: String
     , ct_sum :: Bool -- True for sumtypes. Only needed for serializing.
     , ct_fields :: [FT] -- only needed for parseing.
-    , ct_multf :: Bool -- True if multiple fields.
     }
 
 data FT
@@ -127,10 +111,10 @@ data Prim = forall a. Integral a => PrimInt a
           | PrimChar Char
           | PrimString String
           | PrimUnit --- quick solution for empty constructors.
-          deriving Typeable
 
 instance Show Prim
 instance Data Prim
+instance Typeable Prim --- useful for errors.
  
 
 primIsString :: Prim -> Either String String
@@ -177,30 +161,27 @@ class (Format m) => SmartCopy a m where
                                => a -> Int -> Int -> Bool -> Bool ->  m EncodedType
     serializeWithIndex a = gserialize (from a)
 
-    parse :: Data a => Bool -> Bool -> m EncodedType -> Parser a
+    parse :: Data a => Bool -> Bool -> m EncodedType -> m (Parser a)
     -- First bool argument tells us if datatype is sumtype.
     -- Second bool argument tells us if there are multiple selector fields.
---    fmap to
---      . evalStateT (gparseJSONf (multipleConstructors (undefined :: a)) False (isEnum (Proxy :: Proxy a)))
---        . return
-    default parse :: (Generic a, GSmartCopy (Rep a) m, ConNames (Rep a), Data a)
-                  => Bool -> Bool -> m EncodedType -> Parser a
-    parse st mf v = fmap to $ gparse st mf v -- evalStateT (gparse st mf v) (return v) --fmap (pure . to) (runParser (unPack (gparse st mf v)) fail return)
+    default parse :: (Generic a, GSmartCopy (Rep a) m, Data a)
+                  => Bool -> Bool -> m EncodedType -> m (Parser a)
+    parse st mf v = fmap (pure . to) (runParser (unPack (gparse st mf v)) fail return)
 
 class Format m => GSmartCopy t m where
     gserialize :: t x -> Int -> Int -> Bool -> Bool -> m EncodedType
-    gparse :: Bool -> Bool -> m EncodedType -> Parser (t x)--StateT [m EncodedType] Parser (t x)
+    gparse :: Bool -> Bool -> m EncodedType -> m (Parser (t x))
 
 instance Format m => SmartCopy Integer m where
     serializeWithIndex i _ _ _ _ = writeValue (PrimInt i)
     parse _ _ v = case (parseEither' (unPack . parseValue) v) of
-                Right (PrimInt a) -> pure $ toInteger a
+                Right (PrimInt a) -> return $ pure $ toInteger a
                 _                 -> fail "Failed to parse integer."
 
 instance Format m => SmartCopy Int m where
     serializeWithIndex i _ _ _ _ = writeValue (PrimInt $ toInteger i)
     parse _ _ v = case (parseEither' (unPack . parseValue) v) of
-                Right (PrimInt a) -> pure $ fromInteger $ toInteger a
+                Right (PrimInt a) -> return $ pure $ fromInteger $ toInteger a
                 _                 -> fail "Failed to parse integer."
 
 instance Format m => SmartCopy Char m where
@@ -208,15 +189,15 @@ instance Format m => SmartCopy Char m where
     parse _ _ v = case (parseEither' (unPack . parseValue) v) of
                 Right (PrimString s) ->
                     case length s of
-                      0 -> pure '\0'
-                      1 -> pure $ head s
+                      0 -> return $ pure '\0'
+                      1 -> return $ pure $ head s
                       _ -> fail "Failed to parse character, found a string instead."
                 _ -> fail "Failed to parse character."
 
 instance Format m => SmartCopy String m where
     serializeWithIndex s _ _ _ _ = writeValue (PrimString s)
     parse _ _ v = case (parseEither' (unPack . parseValue) v) of
-                Right (PrimString s) -> pure s
+                Right (PrimString s) -> return $ pure s
                 _                    -> fail "Failed to parse string."
 
 instance (Format m, SmartCopy a m) => SmartCopy [a] m where
@@ -231,56 +212,59 @@ instance (Format m, SmartCopy a m) => SmartCopy [a] m where
 
 instance Format m => GSmartCopy U1 m where
     gserialize _ _ _ _ _ = returnEmpty
-    gparse _ _ _ = return U1
+    gparse _ _ _ = return $ pure U1
 
-instance (Format m, SmartCopy (a x) m, GSmartCopy a m, Constructor c) => GSmartCopy (M1 C c a) m where
-    gserialize m1 cl _ st mf  = let cons = Cons cl 0 (conName m1) st [] mf
+instance (Format m, GSmartCopy a m, Constructor c) => GSmartCopy (C1 c a) m where
+    gserialize m1 cl _ st mf  = let cons = Cons cl 0 (conName m1) st []
 ---- we only need field list and field index for parsing. 
 ---- this is not pretty, I'm just passing unneeded stuff.
                                     inside = gserialize (unM1 m1) (cl+1) 0 st False
                                 in enterCons cons inside
-
-    --- Sumtype:
     gparse True mf v    = undefined
+    gparse False mf v   = undefined --fmap ((<$>) M1) (getFromCons (Cons 0 0 (conName (undefined :: C1 c a p)) False []) v)
+                    {-
+                        where dataType = dataTypeOf ((undefined :: m EncodedType -> a) generalCase)
+                              generalCase =
+                                let index = return 0
+                                in if isAlgType dataType
+                                      then index >>= \i -> fromConstrM o (indexConstr dataType (i+1))
+                                      else fail ("Not algebraic.")
+                                          -}
+    {-
+    gparse o          = let field = Field 0 conName
+                            inside = [] in
+                        parseField field inside
+                        -}
+    ------ THIS NEEDS FIXING. We need correct field index and selectors.
 
-    --- Not sumtype and multiple fields:
-    gparse False True v   = let cons = Cons 0 0 (conName (undefined :: M1 C c a p)) False [] True
-                            in M1 <$> (parseSingleCons cons v :: Parser (a x))
-
-
-    --- Not sumtype and single field.
-    gparse False False v = undefined
-
-instance (Format m, GSmartCopy a m, Datatype d) => GSmartCopy (M1 D d a) m where
+instance (Format m, GSmartCopy a m, Datatype d) => GSmartCopy (D1 d a) m where
     gserialize m1 cl fi st mf = gserialize (unM1 m1) cl fi st False
-    gparse st mf v            = M1 <$> gparse st mf v
 
-instance (Format m, GSmartCopy a m, Selector s) => GSmartCopy (M1 S s a) m where
+instance (Format m, GSmartCopy a m, Selector s) => GSmartCopy (S1 s a) m where
     gserialize m1 cl fi st mf = let field = (Field fi (selName m1))
                                     inside = gserialize (unM1 m1) (cl+1) 0 st False
                                 in enterField field mf inside
-    gparse st mf v          = do let inside = gparse st mf v
-                                 M1 <$> inside
 
 instance (GSmartCopy a m, GSmartCopy b m, Format m)
          => GSmartCopy (a :+: b) m where
     gserialize c@(L1 a) cl fi _ mf  = gserialize a cl fi True mf
     gserialize c@(R1 a) cl fi _ mf = gserialize a cl fi True mf
-    gparse st mf v          = let c1 = L1 <$> (gparse True mf v)
-                                  c2 = R1 <$> (gparse True mf v)
-                                  in (c1 <|> c2)
+    gparse st mf v          = let c1 = L1 <$> unPack (gparse True mf v)
+                                  c2 = R1 <$> unPack (gparse True mf v)
+                                  in return (c1 <|> c2)
 
 instance (GSmartCopy a m, GSmartCopy b m, Format m) => GSmartCopy (a :*: b) m where
     gserialize (a :*: b) cl fi st mf = mult (gserialize a cl fi st True)
                                         (gserialize b cl (fi+1) st True)
-    gparse st mf v = do let f1 = gparse st True v
-                        let f2 = gparse st True v
-                        (:*:) <$> f1 <*> f2
+    gparse st mf v = do f1 <- gparse st True v
+                        f2 <- gparse st True v
+                        return $ (:*:) <$> f1 <*> f2
 
 instance (Data a, SmartCopy a m) => GSmartCopy (K1 g a) m where
     gserialize (K1 a) cl fi st mf = serializeWithIndex a cl fi st mf
-    gparse st mf v = K1 <$> parse st mf v--lift $ K1 <$> (parse st mf =<< pop)
-                                  
+    gparse st mf v        = do pa <- parse st mf v
+                               return $ K1 <$> pa
+
 
 -------------------------------------------------------------------------------
 -- Parser
@@ -367,6 +351,4 @@ pa <.*> pb = do res1 <- runParser pa fail return
 -------------------------------------------------------------------------------
 -- Other
 -------------------------------------------------------------------------------
-
-
 

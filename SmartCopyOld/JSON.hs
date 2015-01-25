@@ -2,9 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module JSON where
@@ -12,7 +10,6 @@ module JSON where
 import Control.Applicative
 import Control.Arrow
 import Control.Monad
-import "mtl" Control.Monad.State
 import Data.Aeson
 import Data.Aeson.Generic as AG
 import qualified Data.Aeson.Types as AT
@@ -25,7 +22,6 @@ import SmartCopy as SC
 import Data.Scientific (Scientific)
 import qualified Data.Scientific as Scientific (coefficient, base10Exponent, fromFloatDigits)
 import Data.Typeable (Typeable)
-import GHC.Generics
 
 -------------------------------------------------------------------------------
 -- JSON Values
@@ -55,8 +51,6 @@ instance Monad JSON where
     return a = JSON a
     m >>= g = g (unJSON m)
 
-instance MonadState [JSON Value] Parser where
-
 data JSVal a
     = JS
     { js_version :: Version a
@@ -68,7 +62,7 @@ newtype JSONVersioned a = JSONVersioned { unJSONVs :: JSVal a }
 newtype JSON a = JSON { unJSON :: a } deriving Show
  
 instance Functor JSON where
-    fmap f ma = return $ f $ unPack ma
+    fmap = undefined
 
 instance Applicative JSON where
     pure = return
@@ -82,7 +76,7 @@ instance Format JSON where
     type EncodedType = Value
     unPack ma = unJSON ma
     returnEmpty = return AT.emptyObject
-    enterCons (Cons clevel _ name sumType _ _) v =
+    enterCons (Cons clevel _ name sumType _) v =
         let val = unPack v
             --val = js_value $ unPack v
             --version = js_version $ unPack v in
@@ -139,34 +133,6 @@ instance Format JSON where
     mult (JSON (Array a1)) (JSON (Array a2)) =
                  let vals = array $ V.toList $ a1 V.++ a2
                  in return vals
-
-
-    parseSingleCons ct obj@(JSON (Object o)) =
-        do case fromObject o of
-             [("tag", String tag), ("contents", cont)] ->
-                fail ("Malformed object. Found tagged sumtype\
-                      \but was expecting single-constructor datatype.")
-             o' -> undefined --parse False (ct_multf ct) (lkpObject o (T.pack $ ct_name ct))
-
-{-
-    parseSumCons ct obj@(JSON (Object o)) =
-        do case fromObject o of
-             [("tag", String tag), ("contents", cont)] ->
-                consLookup (T.unpack tag) (ct_name ct) obj
-             o' -> fail ("Was expecting sumtype. Found: " ++ show o')
-        where consLookup :: (SmartCopy a JSON, Data a)
-                         => String
-                         -> String
-                         -> JSON Value
-                         -> StateT [m EncodedType] Parser a
-              consLookup t x cont
-                = case t == x of
-                    True ->
-                        parse False (ct_multf ct) cont
-                    _    ->
-                        fail ("Couldn't find a matching tag for constructors of datatype. " ++
-                              t ++ " is not a valid constructor.")
-  -}              
     getFromCons ct obj@(JSON (Object o)) =
          do case fromObject o of
               [("tag", String tag), ("contents", cont)] ->
@@ -258,17 +224,10 @@ parseString :: Value -> Parser Prim
 parseString (String s) = pure (PrimString $ T.unpack s)
 parseString _ = fail "Couldn't parse string."
 
-lkpObject :: Object -> T.Text -> JSON Value
-lkpObject obj key
-    = case M.lookup key obj of
-        Nothing -> fail $ "Couldn't find " ++ show key ++ "in object " ++ (show obj)
-        Just v  -> return v
-
-
 fromObject = map (first T.unpack) . M.toList
 
 runJSONEncode :: SmartCopy a JSON => a -> IO ()
 runJSONEncode a = print $ unPack (serialize a :: JSON Value)
 
 runJSONParse :: (Data a, SmartCopy a JSON) => JSON EncodedType -> JSON a
-runJSONParse v = runParser (parse False False v) fail return
+runJSONParse v = runParser (unPack ((parse False False v))) fail return
