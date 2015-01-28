@@ -5,22 +5,28 @@
 
 module TestInstances where
 
-import "mtl" Control.Monad.Reader hiding (sequence)
+-------------------------------------------------------------------------------
+-- LOCAL
+-------------------------------------------------------------------------------
+import JSON
+import MonadTypesInstances
+import SmartCopy
 
-import Control.Applicative
-import Control.Monad
-import GHC.Generics
-
+-------------------------------------------------------------------------------
+-- SITE-PACKAGES
+-------------------------------------------------------------------------------
 import qualified Data.Aeson as Json
-import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.HashMap.Strict as M
 import qualified Data.Vector as V
+
+import GHC.Generics
 -------------------------------------------------------------------------------
--- Local
+-- STDLIB
 -------------------------------------------------------------------------------
-import MonadTypesInstances
-import JSON
-import SmartCopy
+import "mtl" Control.Monad.Reader hiding (sequence)
+import Control.Applicative
+import Control.Monad
 
 
 data Some = Some Spam Int deriving (Eq, Show, Generic)

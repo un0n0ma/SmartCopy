@@ -8,18 +8,25 @@
 
 module SmartCopy where
 
-import Control.Applicative
-import "mtl" Control.Monad.Identity
-import Control.Monad.IO.Class
-import "mtl" Control.Monad.Reader
-import "mtl" Control.Monad.Writer
-import "mtl" Control.Monad.Trans (MonadTrans(..))
+-------------------------------------------------------------------------------
+-- LOCAL
+-------------------------------------------------------------------------------
+import MonadTypesInstances
+
+-------------------------------------------------------------------------------
+-- SITE-PACKAGES
+-------------------------------------------------------------------------------
 import Data.Text.Internal as T
 
 -------------------------------------------------------------------------------
--- Local
+-- STDLIB
 -------------------------------------------------------------------------------
-import MonadTypesInstances
+import Control.Applicative
+import Control.Monad.IO.Class
+import "mtl" Control.Monad.Identity
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.Trans (MonadTrans(..))
+import "mtl" Control.Monad.Writer
 
 
 class SmartCopy a where

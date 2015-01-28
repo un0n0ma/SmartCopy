@@ -7,12 +7,22 @@
 
 module MonadTypesInstances where
 
+------------------------------------------------------------------------------
+-- LOCAL
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- SITE-PACKAGES
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- STDLIB
+------------------------------------------------------------------------------
 import Control.Applicative
+import Control.Monad.IO.Class
 import "mtl" Control.Monad.Identity
 import "mtl" Control.Monad.Reader
-import Control.Monad.IO.Class
-import "mtl" Control.Monad.Writer
 import "mtl" Control.Monad.Trans (MonadTrans(..))
+import "mtl" Control.Monad.Writer
+
 
 newtype FailT m a = FailT { runFailT :: m (Fail a) }
 

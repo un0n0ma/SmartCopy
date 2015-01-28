@@ -4,10 +4,17 @@
 
 module JSON where
 
-import "mtl" Control.Monad.Reader
-import "mtl" Control.Monad.Writer
+-------------------------------------------------------------------------------
+-- LOCAL
+-------------------------------------------------------------------------------
+import MonadTypesInstances
+import SmartCopy
+
+-------------------------------------------------------------------------------
+-- SITE-PACKAGES
+-------------------------------------------------------------------------------
+
 import Data.Aeson.Encode (fromValue)
-import Data.Maybe
 import Data.Text.Lazy.Builder
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import qualified Data.Aeson as Json
@@ -18,10 +25,11 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 
 -------------------------------------------------------------------------------
--- Local
+-- STDLIB
 -------------------------------------------------------------------------------
-import MonadTypesInstances
-import SmartCopy
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.Writer
+import Data.Maybe
 
 
 encode :: Json.Value -> LBS.ByteString

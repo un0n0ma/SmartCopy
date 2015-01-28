@@ -1,11 +1,21 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Tests where
 
-import Control.Applicative
-import Data.Aeson as Json
+-------------------------------------------------------------------------------
+-- LOCAL
+-------------------------------------------------------------------------------
+import JSON
+import MonadTypesInstances (fromOk)
+import SmartCopy
+import qualified TestInstances as Test
+
+-------------------------------------------------------------------------------
+-- SITE-PACKAGES
+-------------------------------------------------------------------------------
 import Data.Hashable
 import Data.Scientific
 import Test.HUnit
@@ -13,14 +23,11 @@ import Test.QuickCheck
 import qualified Data.HashMap as M
 import qualified Data.Text as T
 import qualified Data.Vector as V
-
+import qualified Data.Aeson as Json
 -------------------------------------------------------------------------------
--- Local
+-- STDLIB
 -------------------------------------------------------------------------------
-import MonadTypesInstances (fromOk)
-import JSON
-import SmartCopy
-import qualified TestInstances as Test
+import Control.Applicative
 
 ----------
 -- Generate arbitrary JSON values, possibly needed for later testing
@@ -37,20 +44,20 @@ instance (Eq k, Ord k, Hashable k, Arbitrary k, Arbitrary v) => Arbitrary (M.Has
 instance (Arbitrary a) => Arbitrary (V.Vector a) where
     arbitrary = V.fromList <$> arbitrary
 
-instance Arbitrary Value where
+instance Arbitrary Json.Value where
     arbitrary = arbitraryValue 3
 
 
-arbitraryValue :: Int -> Gen Value
-arbitraryValue 0 = return Null
+arbitraryValue :: Int -> Gen Json.Value
+arbitraryValue 0 = return Json.Null
 arbitraryValue i
     = oneof
-    [ object <$> shortListOf ((,) <$> arbitrary <*> subValue)
-    , Array . V.fromList <$> shortListOf subValue
-    , String <$> arbitrary
-    , Number <$> arbitrary
-    , Bool <$> arbitrary
-    , pure Null
+    [ Json.object <$> shortListOf ((,) <$> arbitrary <*> subValue)
+    , Json.Array . V.fromList <$> shortListOf subValue
+    , Json.String <$> arbitrary
+    , Json.Number <$> arbitrary
+    , Json.Bool <$> arbitrary
+    , pure Json.Null
     ]
     where 
         subValue = arbitraryValue (i-1)
@@ -101,43 +108,43 @@ tests_JSON
                 assertEqual "Serializing JSON" Test.some2 pResult
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.some2
-                let sResult2 = toJSON Test.some2
+                let sResult2 = Json.toJSON Test.some2
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.some1
-                let sResult2 = toJSON Test.some1
+                let sResult2 = Json.toJSON Test.some1
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.v8
-                let sResult2 = toJSON Test.v8
+                let sResult2 = Json.toJSON Test.v8
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.v7
-                let sResult2 = toJSON Test.v7
+                let sResult2 = Json.toJSON Test.v7
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.v1
-                let sResult2 = toJSON Test.v1
+                let sResult2 = Json.toJSON Test.v1
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = serializeSmart jsonSerializationFormat Test.v2
-                let sResult2 = toJSON Test.v2
+                let sResult2 = Json.toJSON Test.v2
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do pResult1 :: Test.MyDouble <- fromOk $ parseSmart jsonParseFormat Test.v3
-                let Json.Success pResult2 = fromJSON Test.v3
+                let Json.Success pResult2 = Json.fromJSON Test.v3
                 assertEqual "Comparing parsed with Aeson" pResult1 pResult2
         , TestCase $
              do pResult1 :: Test.MyDouble <- fromOk $ parseSmart jsonParseFormat Test.v4
-                let Json.Success pResult2 = fromJSON Test.v4
+                let Json.Success pResult2 = Json.fromJSON Test.v4
                 assertEqual "Comparing parsed with Aeson" pResult1 pResult2
         , TestCase $
              do pResult1 :: Test.FooBar <- fromOk $ parseSmart jsonParseFormat Test.v5
-                let Json.Success pResult2 = fromJSON Test.v5
+                let Json.Success pResult2 = Json.fromJSON Test.v5
                 assertEqual "Comparing parsed with Aeson" pResult1 pResult2
         , TestCase $
              do pResult1 :: Test.FooBar <- fromOk $ parseSmart jsonParseFormat Test.v6
-                let Json.Success pResult2 = fromJSON Test.v6
+                let Json.Success pResult2 = Json.fromJSON Test.v6
                 assertEqual "Comparing parsed with Aeson" pResult1 pResult2
          ]
 
