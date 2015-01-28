@@ -7,6 +7,7 @@ module JSON where
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.Writer
 import Data.Aeson.Encode (fromValue)
+import Data.Maybe
 import Data.Text.Lazy.Builder
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import qualified Data.Aeson as Json
@@ -19,8 +20,9 @@ import qualified Data.Vector as V
 -------------------------------------------------------------------------------
 -- Local
 -------------------------------------------------------------------------------
-import Instances
+import MonadTypesInstances
 import SmartCopy
+
 
 encode :: Json.Value -> LBS.ByteString
 encode = encodeUtf8 . toLazyText . fromValue
@@ -29,26 +31,42 @@ jsonSerializationFormat :: SerializationFormat (Writer Json.Value) Json.Value
 jsonSerializationFormat
     = SerializationFormat
     { runSerialization =
-          \m -> snd $ runWriter m
+          \m -> arConcat $ snd $ runWriter m
     , beginWritingCons =
           \cons ->
-           case (fst . snd) cons of
-             False -> 
-                case (snd . snd) cons of
-                  False ->
-                    tell $ Json.Array $ V.empty
-                  True ->
-                    tell $ Json.object [(fst cons, Json.Null)]
-             True ->
-                tell $ Json.object [("tag", Json.String $ fst cons),
-                                       ("contents", Json.Array $ V.empty)]
-               -- do tell $ Json.object [(fst cons, Json.Array $ V.empty)]
+          case ctagged cons of
+            False ->
+                case cfields cons of
+                  Left 0 ->
+                    do tell $ Json.String $ cname cons
+                  Left 1 ->
+                    do tell $ Json.Null
+                  Left _ ->
+                    do tell $ Json.Array $ V.empty
+                  Right _ ->
+                    do tell $ Json.object $ [(cname cons, Json.Null)]
+            True ->
+                case cfields cons of
+                  Left 0 ->
+                    do tell $ Json.String $ cname cons
+                  Left _ ->
+                    do tell $ Json.object [("tag", Json.String $ cname cons),
+                                        ("contents", Json.Array $ V.empty)]
+                  Right _ ->
+                    do tell $ Json.object [("tag", Json.String $ cname cons),
+                                        ("contents", Json.Object $ M.empty)]
+    , withField =
+          \nameOrIndex ma ->
+              case nameOrIndex of
+                Left index -> ma
+                Right label -> do tell $ Json.object [(label, Json.Null)]
+                                  ma
     , writePrimitive =
           \prim ->
             case prim of
-              PrimNum i -> tell $ Json.Number $ fromIntegral i
+              PrimInt i -> tell $ Json.Number $ fromIntegral i
               PrimBool b -> tell $ Json.Bool b
-              _            -> fail "No primitive value"
+              _          -> fail "No primitive value"
     , endWritingCons = tell Json.Null
     }
 
@@ -58,26 +76,83 @@ jsonParseFormat
     { runParser = \action value -> runReader (runFailT action) value
     , readCustom =
         \cons ->
-            do Json.Object obj <- ask
-               let conNames = map (fst . fst) cons
+            do val <- ask
+               let conNames = map (cname . fst) cons
                    parsers = map snd cons
-               let [(con, args)] = M.toList obj
-               case lookup con (zip conNames parsers) of
-                 Just parser -> local (const args) parser
-                 Nothing     -> fail $ "Didn't find constructor for tag " ++ show con ++ ". Only found " ++ show conNames
+               case val of
+                 Json.Object obj ->
+                    case length cons of
+                      0 -> fail "No constructor found."
+                      1 -> do let [(con, args)] = M.toList obj
+                              case lookup con (zip conNames parsers) of
+                                Just parser -> local (const args) parser
+                                Nothing     ->
+                                    fail $ msg (T.unpack con) conNames
+                      _ -> do let [("tag", Json.String con), ("contents", args)] = M.toList obj
+                              case lookup con (zip conNames parsers) of
+                                Just parser -> local (const args) parser
+                                Nothing ->
+                                    fail $ msg (T.unpack con) conNames
+                      where msg con cons = "Didn't find constructor for tag " ++ con ++
+                                 "Only found " ++ show cons
+                                    
+                                    
+                 ar@(Json.Array _) ->
+                    local (const ar) (head parsers)
+                 tagOrField@(Json.String s) ->
+                    do case length cons of
+                         1 -> case (cfields $ fst $ head cons) of
+                                Left 0 ->
+                                    do let parser = snd $ head cons
+                                       local (const tagOrField) parser
+                                Left 1 ->
+                                    do let parser = snd $ head cons
+                                       local (const tagOrField) parser
+                                _      -> fail "Parsing failure. Was expecting\ 
+                                               \ a single-field constructor."
+                         _ -> case (lookup s (zip conNames parsers)) of
+                                Just parser -> local (const tagOrField) parser
+                                Nothing     ->
+                                    fail "Parsing failure: Was expecting a sumtype\
+                                          \ constructor. Found a string primitive."
+
+                 otherPrim    ->  
+                     do case length cons of
+                          1 -> case (cfields $ fst $ head cons) of
+                                 Left 0 ->
+                                   do let parser = snd $ head cons
+                                      local (const otherPrim) parser
+                                 Left 1 ->
+                                   do let parser = snd $ head cons
+                                      local (const otherPrim) parser
+                                 _      -> fail "Parsing failure. Was expecting\
+                                                 \ a single-field constructor."
+                          _ -> fail "Parsing failure. Was expecting a sumtype \
+                                     \constructor. Found a single constructor."
+                        
     , readField =
-        \i cons ->
-            do Json.Object obj <- local (Json.object . (: []) .(!! i) . fromObject) ask
-               let conNames = map (fst . fst) cons
-                   parsers = map snd cons
-               let [(con, args)] = M.toList obj
-               case lookup con (zip conNames parsers) of
-                 Just parser -> local (const args) parser
-                 Nothing    -> fail $ "Didn't find selector for tag " ++ show con ++ ". Only found " ++ show conNames 
+        \nameOrIndex ma ->
+            case nameOrIndex of
+              Left index ->
+                  do v <- ask
+                     case v of
+                       Json.Array a  ->
+                            local (array . drop index . fromArray) ma
+                       n -> local (const n) ma
+                       _ -> fail "Parsing failure. Was expecting unlabeled fields. \
+                                  \Found record type."
+              Right label ->
+                 do Json.Object _ <- ask
+                    local (fromJust . (lookup label) . fromObject) ma
     , readNum =
         do x <- ask
            case x of
              Json.Number n -> return $ floor n
+             ar@(Json.Array _) -> do
+                    case fromArray ar of
+                      Json.Number n:xs -> return $ floor n
+
+
              f             -> fail $ "Parsing error. Was expecting number, but found: " ++ show f
     , readBool =
         do x <- ask
@@ -87,7 +162,6 @@ jsonParseFormat
     }
 
 
-fromObject (Json.Object o) = M.toList o
 
 instance Monoid Json.Value where
     mempty = Json.Null
@@ -99,15 +173,44 @@ instance Monoid Json.Value where
                     Json.object [k, ("contents", Json.Array $ ar V.++ ar2)]
                   _              ->
                     Json.object [k, ("contents", Json.Array $ ar `V.snoc` v)]
+            [k@("tag", _), ("contents", o1@(Json.Object _))] ->
+                case v of
+                  o2@(Json.Object _) ->
+                    Json.object [k, ("contents", Json.object $ (fromObject o1) ++ (fromObject o2))]
+                  val ->
+                    case fromObject o1 of
+                      [(tag, Json.Null)] ->
+                        Json.object [k, ("contents", Json.object $ [(tag, val)])]
+                       
+
             [(a, Json.Array ar)] ->
                 Json.object [(a, Json.Array $ ar `V.snoc` v)]
             [(a, Json.Null)] ->
                 Json.object [(a, v)]
+            o1@[(a, primVal)] ->
+                case v of
+                  o2@(Json.Object _) ->
+                      Json.object $ o1 ++ (fromObject o2)
 
     Json.Array ar1 `mappend` Json.Array ar2
         = Json.Array $ ar1 V.++ ar2
     Json.Array ar1 `mappend` v
         = Json.Array $ ar1 `V.snoc` v
+    Json.Null `mappend` v
+        = v
     v1 `mappend` v2
         = Json.Array $ V.fromList [v1, v2]
+
+arConcat :: Json.Value -> Json.Value
+arConcat a@(Json.Array ar)
+    = let vs = V.toList ar in
+      case length vs of
+        1 -> head vs
+        _ -> a
+arConcat o = o
+
+
+fromObject (Json.Object o) = M.toList o
+fromArray (Json.Array a) = V.toList a
+array = Json.Array . V.fromList
 

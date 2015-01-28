@@ -19,7 +19,7 @@ import Data.Text.Internal as T
 -------------------------------------------------------------------------------
 -- Local
 -------------------------------------------------------------------------------
-import Instances
+import MonadTypesInstances
 
 
 class SmartCopy a where
@@ -41,12 +41,13 @@ instance SmartCopy Int where
     readSmart fmt =
         fmap fromIntegral $ readNum fmt
     writeSmart fmt i =
-        writePrimitive fmt $ PrimNum i
+        writePrimitive fmt $ PrimInt i
         
 data SerializationFormat m r
     = SerializationFormat
     { runSerialization :: m () -> r
     , beginWritingCons :: Cons -> m ()
+    , withField :: Either Int LabeledField -> m () -> m ()
     , writePrimitive :: Prim -> m ()
     , endWritingCons :: m ()
     }
@@ -55,8 +56,8 @@ data ParseFormat i m
     = ParseFormat
     { runParser :: SmartCopy a => m a -> i -> Fail a
     , readCustom :: SmartCopy a => [(Cons, m a)] -> m a
-    , readField :: SmartCopy a => Int -> [(Cons, m a)] -> m a
-    , readNum :: Integral a => m a
+    , readField :: SmartCopy a => Either Int LabeledField -> m a -> m a
+    , readNum :: m Int
     , readBool :: m Bool
     }
 
@@ -66,9 +67,17 @@ data ParseFormat i m
 --Other
 -------------------------------------------------------------------------------
 
-type Cons = (T.Text, (Bool, Bool)) -- Bool-Args: IsTagged, IsRecord
+data Cons
+    = C
+    { cname :: T.Text
+    , cfields :: Either Int [LabeledField]
+    , ctagged :: Bool
+    , cindex :: Int
+    }
 
-data Prim = forall a. Integral a => PrimNum a
+type LabeledField = T.Text
+
+data Prim = PrimInt Int
           | PrimString String
           | PrimBool Bool
 
