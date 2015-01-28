@@ -47,8 +47,6 @@ jsonSerializationFormat
                     do tell $ Json.object $ [(cname cons, Json.Null)]
             True ->
                 case cfields cons of
-                  Left 0 ->
-                    do tell $ Json.String $ cname cons
                   Left _ ->
                     do tell $ Json.object [("tag", Json.String $ cname cons),
                                         ("contents", Json.Array $ V.empty)]
@@ -79,56 +77,54 @@ jsonParseFormat
             do val <- ask
                let conNames = map (cname . fst) cons
                    parsers = map snd cons
-               case val of
-                 Json.Object obj ->
-                    case length cons of
-                      0 -> fail "No constructor found."
-                      1 -> do let [(con, args)] = M.toList obj
-                              case lookup con (zip conNames parsers) of
-                                Just parser -> local (const args) parser
-                                Nothing     ->
+               case length cons of
+                 0 -> fail "Parsing failure. No constructor to look up."
+                 1 -> case val of
+                        Json.Object obj ->
+                            do let [(con, args)] = M.toList obj
+                               case lookup con (zip conNames parsers) of
+                                 Just parser -> local (const args) parser
+                                 Nothing ->
                                     fail $ msg (T.unpack con) conNames
-                      _ -> do let [("tag", Json.String con), ("contents", args)] = M.toList obj
-                              case lookup con (zip conNames parsers) of
-                                Just parser -> local (const args) parser
-                                Nothing ->
-                                    fail $ msg (T.unpack con) conNames
-                      where msg con cons = "Didn't find constructor for tag " ++ con ++
-                                 "Only found " ++ show cons
-                                    
-                                    
-                 ar@(Json.Array _) ->
-                    local (const ar) (head parsers)
-                 tagOrField@(Json.String s) ->
-                    do case length cons of
-                         1 -> case (cfields $ fst $ head cons) of
-                                Left 0 ->
-                                    do let parser = snd $ head cons
-                                       local (const tagOrField) parser
-                                Left 1 ->
-                                    do let parser = snd $ head cons
-                                       local (const tagOrField) parser
-                                _      -> fail "Parsing failure. Was expecting\ 
+                            where msg con cons = "Didn't find constructor for tag " ++ con ++
+                                                 "Only found " ++ show cons
+                        ar@(Json.Array _) ->
+                            local (const ar) (head parsers)
+                        otherPrim ->
+                            case (cfields $ fst $ head cons) of
+                              Left 0 ->
+                                  do let parser = snd $ head cons
+                                     local (const otherPrim) parser
+                              Left 1 ->
+                                  do let parser = snd $ head cons
+                                     local (const otherPrim) parser
+                              _      -> fail "Parsing failure. Was expecting\ 
                                                \ a single-field constructor."
-                         _ -> case (lookup s (zip conNames parsers)) of
-                                Just parser -> local (const tagOrField) parser
-                                Nothing     ->
-                                    fail "Parsing failure: Was expecting a sumtype\
-                                          \ constructor. Found a string primitive."
+                 _ ->
+                    case val of
+                      Json.Object obj ->
+                          do let [("tag", Json.String con), ("contents", args)] = M.toList obj
+                             case lookup con (zip conNames parsers) of
+                               Just parser -> local (const args) parser
+                               Nothing -> fail $ msg (T.unpack con) conNames
+                          where msg con cons = "Didn't find constructor for tag " ++ con ++
+                                                "Only found " ++ show cons
+                      ar@(Json.Array _) ->
+                          case fromArray ar of
+                            o@(Json.Object _):_ ->
+                                local (const o) (readCustom jsonParseFormat cons)
+                            nameOrField@(Json.String _):_ ->
+                            -- Needed for SumTypes with no fields, e.g
+                            -- MyBool = MyTrue | MyFalse. Types are not tagged
+                            -- in [("tag",...),("contents",...)] form, but have
+                            -- multiple constructors for lookup.
+                                local (const nameOrField) (head parsers)
+                            f ->
+                                fail $ "Parsing failure. Was expecting a tagged type.\
+                                       \ found" ++ show f
+                      _ ->
+                          fail "Parsing failure. Was expecting a tagged type."
 
-                 otherPrim    ->  
-                     do case length cons of
-                          1 -> case (cfields $ fst $ head cons) of
-                                 Left 0 ->
-                                   do let parser = snd $ head cons
-                                      local (const otherPrim) parser
-                                 Left 1 ->
-                                   do let parser = snd $ head cons
-                                      local (const otherPrim) parser
-                                 _      -> fail "Parsing failure. Was expecting\
-                                                 \ a single-field constructor."
-                          _ -> fail "Parsing failure. Was expecting a sumtype \
-                                     \constructor. Found a single constructor."
                         
     , readField =
         \nameOrIndex ma ->
@@ -139,8 +135,6 @@ jsonParseFormat
                        Json.Array a  ->
                             local (array . drop index . fromArray) ma
                        n -> local (const n) ma
-                       _ -> fail "Parsing failure. Was expecting unlabeled fields. \
-                                  \Found record type."
               Right label ->
                  do Json.Object _ <- ask
                     local (fromJust . (lookup label) . fromObject) ma

@@ -118,11 +118,11 @@ instance SmartCopy Double where
 
 instance SmartCopy MyBool where
     readSmart fmt =
-        readCustom fmt [(C "MyTrue" (Left 0) True 0, return MyTrue), (C "MyFalse" (Left 0) True 1, return MyFalse)]
+        readCustom fmt [(C "MyTrue" (Left 0) False 0, return MyTrue), (C "MyFalse" (Left 0) False 1, return MyFalse)]
     writeSmart fmt MyTrue =
-        do beginWritingCons fmt (C "MyTrue" (Left 0) True 0)
+        do beginWritingCons fmt (C "MyTrue" (Left 0) False 0)
     writeSmart fmt MyFalse =
-        do beginWritingCons fmt (C "MyFalse" (Left 0) True 0)
+        do beginWritingCons fmt (C "MyFalse" (Left 0) False 0)
 
 instance SmartCopy Easy where
     readSmart fmt =
