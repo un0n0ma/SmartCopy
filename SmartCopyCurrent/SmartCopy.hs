@@ -50,22 +50,37 @@ instance SmartCopy Int where
     writeSmart fmt i =
         writePrimitive fmt $ PrimInt i
         
-data SerializationFormat m r
+data SerializationFormat m r -- was ist das r bzw. warum steht das an dieser Stelle? Du willst doch nicht
+-- für jeden möglichen Rückgabetyp ein eigenes ParseFormat definieren.
     = SerializationFormat
     { runSerialization :: m () -> r
-    , beginWritingCons :: Cons -> m ()
-    , withField :: Either Int LabeledField -> m () -> m ()
+    , beginWritingCons :: Cons -> m () -- wie schon besprochen: besser "writeCons :: Cons -> m () -> m ()"
+    , withField :: Either Int LabeledField -> m () -> m () -- wie unten beim ParseFormat: du kannst dir überlegen
+    -- ob du den "Either Int LabeledField" Parameter weglässt.
     , writePrimitive :: Prim -> m ()
     , endWritingCons :: m ()
+    -- schreiben von Primitivwerten fehlt noch
     }
 
-data ParseFormat i m
+data ParseFormat i m -- Was ist das i?
     = ParseFormat
     { runParser :: SmartCopy a => m a -> i -> Fail a
-    , readCustom :: SmartCopy a => [(Cons, m a)] -> m a
-    , readField :: SmartCopy a => Either Int LabeledField -> m a -> m a
-    , readNum :: m Int
-    , readBool :: m Bool
+    -- warum brauchst du eigentlich überall die SmartCopy Constraints?? Ich vermute, die sind unnötig (hab's
+    -- aber nicht ausprobiert)
+    , readCustom :: SmartCopy a => [(Cons, m a)] -> m a -- ich würde readCustom umbennenn nach parseCons
+    , readField :: SmartCopy a => Either Int LabeledField -> m a -> m a  -- readField -> parseField
+    -- ich würde anstatt "Either Int LabeledField" einen eigenen Datentyp einführen
+    -- was du noch bedenken solltest: die Information über die Felder muss der Benutzer des Formats
+    -- jetzt doppelt mitgeben: einmal in Cons und einmal über "Either Int LabeledField". Das ist nicht so schön.
+    -- Du kannst dir überlegen, ob du readField nicht die einfachere Signature "readField ::  m a -> m a"
+    -- geben willst. Dann müssen die readField Aufruf halt in der richtige Reihenfolge erfolgen.
+    -- Aber: wenn du einen streaming Parser haben willst muss das sowieso so sein. Was ich damit meine: wenn
+    -- du beim Serialisieren erste das Feld foo und dann das Feld bar schreibst, und du willst dann Parsen
+    -- ohne komplett den serialisierten ByteString zu lesen, dann klappt das nicht, wenn du zuerst readField für
+    -- bar aufrufst.
+    , readNum :: m Int  -- --> parseNum
+    , readBool :: m Bool  -- --> parseBool
+    -- warum nicht einfach readPrim?
     }
 
 
