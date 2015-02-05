@@ -26,28 +26,44 @@ import Control.Monad.State
 import Control.Monad.Writer
 
 serializeSmart a = runSerialization (writeSmart xmlLikeSerializationFormat a)
-    where runSerialization m = do snd $ runWriter m
+    where runSerialization m = execWriter (runStateT m [])
 
 parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (readSmart xmlLikeParseFormat)
-    where runParser action value = evalState (runFailT action) value
+    where runParser action value = evalState (evalStateT (runFailT action) value) []
 
-xmlLikeSerializationFormat :: SerializationFormat (Writer String)
+xmlLikeSerializationFormat :: SerializationFormat (StateT [String] (Writer String))
 xmlLikeSerializationFormat
     = SerializationFormat
     { withCons =
           \cons m ->
           do let conName = T.unpack $ cname cons
              tell $ openTag conName
+             let fields
+                    = case cfields cons of
+                        Left 0 ->
+                            []
+                        Left i ->
+                            map show [0..i-1]
+                        Right ls ->
+                            map T.unpack ls
+             put fields
              m
              tell $ closeTag conName
     , withField =
-          \field m ->
-              case field of
-                Index i ->
-                    (tell $ openTag $ show i) >> m >> (tell $ closeTag $ show i)
-                Labeled lab ->
-                    (tell $ openTag $ T.unpack lab) >> m >> (tell $ closeTag $ T.unpack lab)
+          \_ m ->
+              do fields <- get
+                 case fields of
+                   field:rest ->
+                       do tell $ openTag field
+                          m
+                          put rest
+                          tell $ closeTag field
+                   [field] ->
+                       do tell $ openTag field
+                          m
+                          tell $ closeTag field
+                   [] -> m
     , withRepetition =
           \wf list ->
               forM_ (zip list (repeat "value")) $
@@ -65,13 +81,14 @@ xmlLikeSerializationFormat
     }
                 
 
-xmlLikeParseFormat :: ParseFormat (FailT (State String))
+xmlLikeParseFormat :: ParseFormat (FailT (StateT String (State [String])))
 xmlLikeParseFormat
     = ParseFormat
     { readCons =
           \cons ->
               do str <- get
                  let conNames = map (T.unpack . cname . fst) cons
+                     conFields = map (cfields . fst) cons
                      parsers = map snd cons
                  case length cons of
                    0 -> fail "Parsing failure. No constructor to look up."
@@ -79,7 +96,13 @@ xmlLikeParseFormat
                        do con <- readOpen
                           case lookup con (zip conNames parsers) of
                             Just parser ->
-                                 do rest <- get
+                                 do let Just cfields = lookup con (zip conNames conFields)
+                                        fields
+                                            = case cfields of
+                                                Left i -> map show [0..i-1]
+                                                Right lbs -> map T.unpack lbs
+                                    lift $ lift $ put fields
+                                    rest <- get
                                     res <- parser
                                     _ <- readCloseWith con
                                     return res
@@ -88,37 +111,37 @@ xmlLikeParseFormat
                                  \constructor for tag " ++ show con ++
                                  ". Only found " ++ show conNames ++ "."
     , readField =
-          \field ma ->
+          \_ ma ->
               do str <- get
-                 let elName
-                        = case field of
-                            Index i -> show i
-                            Labeled lab -> T.unpack lab
-                 _ <- readOpenWith elName           
-                 res <- ma
-                 _ <- readCloseWith elName
-                 return res
+                 fields <- lift $ lift get
+                 case fields of
+                   [] -> ma
+                   (x:xs) ->
+                       do _ <- readOpenWith x
+                          res <- ma
+                          _ <- readCloseWith x
+                          lift $ lift $ put xs
+                          return res
     , readRepetition =
           \ma ->
-              do let acc = []
-                 whileJust enterElemMaybe $
+              do whileJust enterElemMaybe $
                            \_ -> do { res <- ma; _ <- readCloseWith "value"; return res }
     , readPrim =
           do str' <- get
              let str = filter (/=' ') str'
              case reads str of
                [(prim, rest)] ->
-                   do put rest
+                   do lift $ put rest
                       return $ PrimDouble prim
                [] ->
                    case take 4 str of
                      "True" ->
-                         do put $ drop 4 str
+                         do lift $ put $ drop 4 str
                             return $ PrimBool True
                      _ ->
                         case take 5 str of
                           "False" ->
-                               do put $ drop 5 str
+                               do lift $ put $ drop 5 str
                                   return $ PrimBool False
                           _ ->
                             do return $ PrimString str --- FIX
@@ -133,7 +156,7 @@ unwrap s
 
 dropLast n xs = take (length xs - n) xs
 
-readOpen :: FailT (State String) String
+readOpen :: FailT (StateT String (State [String])) String
 readOpen =
     do str <- get
        case isTagOpen str of
@@ -145,7 +168,7 @@ readOpen =
              fail $ "Didn't find an opening tag at " ++ str ++ "."
     where isTagOpen s = (startswith "<" s) && (not $ startswith "</" s)
                  
-readClose :: FailT (State String) String
+readClose :: FailT (StateT String (State [String])) String
 readClose =
     do str <- get
        case startswith "</" str of
@@ -156,7 +179,7 @@ readClose =
          False ->
              fail $ "Didn't find a closing tag at " ++ str ++ "."
 
-readOpenWith :: String -> FailT (State String) String
+readOpenWith :: String -> FailT (StateT String (State [String])) String
 readOpenWith s =
     do str <- get
        case startswith (openTag s) str of
@@ -168,7 +191,7 @@ readOpenWith s =
             fail $ "Didn't find an opening tag for " ++ s ++
                    " at " ++ str ++ "."
 
-readCloseWith :: String -> FailT (State String) String
+readCloseWith :: String -> FailT (StateT String (State [String])) String
 readCloseWith s =
     do str <- get
        case startswith (closeTag s) str of
@@ -180,13 +203,6 @@ readCloseWith s =
             fail $ "Didn't find a closing tag for " ++ s ++
                    " at " ++ str ++ "."
 
-                 {-
-                     do _ <- readOpenWith "value"
-                        res <- ma
-                        _ <- readCloseWith "value"
-                        return ma
-                        -}
---readElemMaybe :: FailT (State (Maybe String)) (Maybe String)
 enterElemMaybe =
     do str <- get
        case startswith (openTag "value") str of
