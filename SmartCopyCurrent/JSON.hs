@@ -15,6 +15,7 @@ import SmartCopy
 -------------------------------------------------------------------------------
 
 import Data.Aeson.Encode (fromValue)
+import Data.Aeson.Utils (fromFloatDigits)
 import Data.Text.Lazy.Builder
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import qualified Data.Aeson as Json
@@ -29,6 +30,8 @@ import qualified Data.Vector as V
 -------------------------------------------------------------------------------
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.Writer
+
+import Control.Applicative
 import Data.Maybe
 
 
@@ -39,48 +42,59 @@ jsonSerializationFormat :: SerializationFormat (Writer Json.Value) Json.Value
 jsonSerializationFormat
     = SerializationFormat
     { runSerialization =
-          \m -> arConcat $ snd $ runWriter m
-    , beginWritingCons =
-          \cons ->
+          \m -> do snd $ runWriter m
+    , withCons =
+          \cons ma ->
           case ctagged cons of
             False ->
                 case cfields cons of
                   Left 0 ->
                     do tell $ Json.String $ cname cons
                   Left 1 ->
-                    do tell $ Json.Null
-                  Left _ ->
-                    do tell $ Json.Array $ V.empty
-                  Right _ ->
+                       ma
+                  Left n ->
+                    do tell $ Json.Array V.empty
+                       ma
+                  Right n ->
                     do tell $ Json.object $ [(cname cons, Json.Null)]
+                       ma
             True ->
                 case cfields cons of
-                  Left _ ->
+                  Left n ->
                     do tell $ Json.object [("tag", Json.String $ cname cons),
-                                        ("contents", Json.Array $ V.empty)]
-                  Right _ ->
-                    do tell $ Json.object [("tag", Json.String $ cname cons),
-                                        ("contents", Json.Object $ M.empty)]
+                                           ("contents", Json.Array $ V.empty)]
+                       ma
+                  Right n ->
+                    do tell $ Json.object [("tag", Json.String $ cname cons)]
+                       ma
     , withField =
           \nameOrIndex ma ->
               case nameOrIndex of
-                Left index -> ma
-                Right label -> do tell $ Json.object [(label, Json.Null)]
-                                  ma
+                Index _ -> ma
+                Labeled label ->
+                    do tell $ Json.object [(label, Json.Null)]
+                       ma
+    , withRepetition =
+          \wf ar ->
+            case length ar of
+              0 -> do tell $ array []
+              n -> do tell $ array []
+                      sequence_ $ map wf ar
     , writePrimitive =
           \prim ->
             case prim of
               PrimInt i -> tell $ Json.Number $ fromIntegral i
               PrimBool b -> tell $ Json.Bool b
-              _          -> fail "No primitive value"
-    , endWritingCons = tell Json.Null
+              PrimString s -> tell $ Json.String $ T.pack s
+              PrimDouble d ->
+                  tell $ Json.Number $ fromFloatDigits d
     }
 
 jsonParseFormat :: ParseFormat Json.Value (FailT (Reader Json.Value))
 jsonParseFormat
     = ParseFormat
     { runParser = \action value -> runReader (runFailT action) value
-    , readCustom =
+    , readCons =
         \cons ->
             do val <- ask
                let conNames = map (cname . fst) cons
@@ -111,16 +125,29 @@ jsonParseFormat
                  _ ->
                     case val of
                       Json.Object obj ->
-                          do let [("tag", Json.String con), ("contents", args)] = M.toList obj
-                             case lookup con (zip conNames parsers) of
-                               Just parser -> local (const args) parser
-                               Nothing -> fail $ msg (T.unpack con) conNames
-                          where msg con cons = "Didn't find constructor for tag " ++ con ++
-                                                "Only found " ++ show cons
+                          case (cfields $ fst $ head cons) of
+                            Left _ ->
+                              do let [("tag", Json.String con), ("contents", args)] = M.toList obj
+                                 case lookup con (zip conNames parsers) of
+                                   Just parser -> local (const args) parser
+                                   Nothing ->
+                                     fail $
+                                     "Didn't find constructor for tag " ++ (T.unpack con) 
+                                     ++ "Only found " ++ show conNames
+                            {- FIX THIS
+                            Right _ ->
+                              do let [("tag", Json.String con), args] = M.toList obj
+                                 case lookup con (zip conNames parsers) of
+                                   Just parser -> local (const args) parser
+                                   Nothing ->
+                                     fail $
+                                     "Didn't find constructor for tag " ++ (T.unpack con) 
+                                     ++ "Only found " ++ show conNames
+                                     -}
                       ar@(Json.Array _) ->
                           case fromArray ar of
                             o@(Json.Object _):_ ->
-                                local (const o) (readCustom jsonParseFormat cons)
+                                local (const o) (readCons jsonParseFormat cons)
                             nameOrField@(Json.String _):_ ->
                             -- Needed for SumTypes with no fields, e.g
                             -- MyBool = MyTrue | MyFalse. Types are not tagged
@@ -137,69 +164,72 @@ jsonParseFormat
     , readField =
         \nameOrIndex ma ->
             case nameOrIndex of
-              Left index ->
+              Index index ->
                   do v <- ask
                      case v of
                        Json.Array a  ->
                             local (array . drop index . fromArray) ma
                        n -> local (const n) ma
-              Right label ->
+              Labeled l ->
                  do Json.Object _ <- ask
-                    local (fromJust . (lookup label) . fromObject) ma
-    , readNum =
+                    local (fromJust . (lookup l) . fromObject) ma
+    , readPrim =
         do x <- ask
            case x of
-             Json.Number n -> return $ floor n
+             Json.Number n ->
+                  return $ PrimDouble $ realToFrac n
+             Json.Bool b -> return $ PrimBool b
+             Json.String s -> return $ PrimString $ T.unpack s
              ar@(Json.Array _) -> do
                     case fromArray ar of
-                      Json.Number n:xs -> return $ floor n
+                      Json.Number n:xs -> return $ PrimInt $ floor n
+                      Json.Bool b:xs -> return $ PrimBool b
+                      Json.String s:xs -> return $ PrimString $ T.unpack s
 
 
-             f             -> fail $ "Parsing error. Was expecting number, but found: " ++ show f
-    , readBool =
-        do x <- ask
-           case x of
-             Json.Bool b -> return b
-             f           -> fail $ "Parsing error. Was expecting number, but found: " ++ show f
+             f             -> fail $ "Parsing error. Was expecting primitive, but found: " ++ show f
     }
-
-
 
 instance Monoid Json.Value where
     mempty = Json.Null
-    Json.Object o1 `mappend` v
-        = case M.toList o1 of
-            [k@("tag", _), ("contents", Json.Array ar)] ->
-                case v of
+    Json.Null `mappend` v
+        = v
+    v `mappend` Json.Null
+        = v
+    Json.Object o1 `mappend` v =
+        case M.toList o1 of
+          [k@("tag", _), ("contents", Json.Array ar1)] ->
+              case v of
                   Json.Array ar2 ->
-                    Json.object [k, ("contents", Json.Array $ ar V.++ ar2)]
-                  _              ->
-                    Json.object [k, ("contents", Json.Array $ ar `V.snoc` v)]
-            [k@("tag", _), ("contents", o1@(Json.Object _))] ->
-                case v of
-                  o2@(Json.Object _) ->
-                    Json.object [k, ("contents", Json.object $ (fromObject o1) ++ (fromObject o2))]
-                  val ->
-                    case fromObject o1 of
-                      [(tag, Json.Null)] ->
-                        Json.object [k, ("contents", Json.object $ [(tag, val)])]
-                       
-
-            [(a, Json.Array ar)] ->
-                Json.object [(a, Json.Array $ ar `V.snoc` v)]
-            [(a, Json.Null)] ->
-                Json.object [(a, v)]
-            o1@[(a, primVal)] ->
-                case v of
-                  o2@(Json.Object _) ->
-                      Json.object $ o1 ++ (fromObject o2)
-
+                      Json.object [k, ("contents", Json.Array $ ar1 V.++ ar2)]
+                  _ ->
+                      Json.object [k, ("contents", Json.Array $ ar1 `V.snoc` v)]
+          [k@("tag", _), ("contents", o1@(Json.Object _))] ->
+              case v of
+                o2@(Json.Object _) ->
+                  Json.object [k, ("contents", Json.object $ (fromObject o1) ++ (fromObject o2))]
+                val ->
+                  case fromObject o1 of
+                    [(tag, Json.Null)] ->
+                        Json.object [k, ("contents", Json.object $ fromObject o1 ++ [(tag, val)])]
+          [k@("tag", _), _] ->
+              case v of
+                o2@(Json.Object _) ->
+                  Json.object $ [k] ++ fromObject o2
+          [(a, Json.Array ar)] ->
+            Json.object [(a, Json.Array $ ar `V.snoc` v)]
+          [(a, Json.Null)] ->
+              Json.object $ [(a, v)]
+          o1@[(a, primVal)] ->
+              case v of
+                o2@(Json.Object _) ->
+                    Json.object $ o1 ++ (fromObject o2)
     Json.Array ar1 `mappend` Json.Array ar2
         = Json.Array $ ar1 V.++ ar2
     Json.Array ar1 `mappend` v
         = Json.Array $ ar1 `V.snoc` v
-    Json.Null `mappend` v
-        = v
+    v `mappend` Json.Array ar1
+        = Json.Array $ v `V.cons` ar1
     v1 `mappend` v2
         = Json.Array $ V.fromList [v1, v2]
 
@@ -207,7 +237,10 @@ arConcat :: Json.Value -> Json.Value
 arConcat a@(Json.Array ar)
     = let vs = V.toList ar in
       case length vs of
-        1 -> head vs
+        1 ->
+          case vs of
+            [Json.Null] -> array []
+            _           -> head vs
         _ -> a
 arConcat o = o
 

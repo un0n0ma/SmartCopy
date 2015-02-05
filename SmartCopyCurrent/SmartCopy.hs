@@ -46,26 +46,33 @@ parseSmart fmt = (runParser fmt) (readSmart fmt)
 
 instance SmartCopy Int where
     readSmart fmt =
-        fmap fromIntegral $ readNum fmt
+        do prim <- readPrim fmt
+           fromPrimInt prim
+        where fromPrimInt prim =
+                  case prim of
+                    PrimInt i -> return i
+                    PrimDouble i -> return $ floor i
+                    _         -> fail $ "Was expecting int primitive, not " ++ show prim
+            
     writeSmart fmt i =
         writePrimitive fmt $ PrimInt i
         
 data SerializationFormat m r
     = SerializationFormat
     { runSerialization :: m () -> r
-    , beginWritingCons :: Cons -> m ()
-    , withField :: Either Int LabeledField -> m () -> m ()
+    , withCons :: Cons -> m () -> m ()
+    , withField :: Field -> m () -> m ()
+    , withRepetition :: forall a. (a -> m ()) -> [a] -> m ()
     , writePrimitive :: Prim -> m ()
-    , endWritingCons :: m ()
     }
 
 data ParseFormat i m
     = ParseFormat
-    { runParser :: SmartCopy a => m a -> i -> Fail a
-    , readCustom :: SmartCopy a => [(Cons, m a)] -> m a
-    , readField :: SmartCopy a => Either Int LabeledField -> m a -> m a
-    , readNum :: m Int
-    , readBool :: m Bool
+    { runParser :: forall a. m a -> i -> Fail a
+    , readCons :: forall a. [(Cons, m a)] -> m a
+    , readField :: forall a. Field -> m a -> m a
+    , readRepetition :: forall a. m a -> m [a]
+    , readPrim :: m Prim
     }
 
 
@@ -77,15 +84,19 @@ data ParseFormat i m
 data Cons
     = C
     { cname :: T.Text
-    , cfields :: Either Int [LabeledField]
+    , cfields :: Either Int [Label]
     , ctagged :: Bool
     , cindex :: Int
     }
 
-type LabeledField = T.Text
+data Field = Index Int | Labeled Label
+
+type Label = T.Text
 
 data Prim = PrimInt Int
           | PrimString String
           | PrimBool Bool
+          | PrimDouble Double
+          deriving (Show, Read)
 
 

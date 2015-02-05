@@ -20,6 +20,7 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import "mtl" Control.Monad.Identity
 import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
 import "mtl" Control.Monad.Trans (MonadTrans(..))
 import "mtl" Control.Monad.Writer
 
@@ -27,7 +28,7 @@ import "mtl" Control.Monad.Writer
 newtype FailT m a = FailT { runFailT :: m (Fail a) }
 
 data Fail a = Fail String
-            | Ok a deriving Show
+        | Ok a deriving Show
 
 fromOk :: Monad m => Fail a -> m a
 fromOk (Ok a) = return a
@@ -56,6 +57,10 @@ instance MonadReader r m => MonadReader r (FailT m) where
     local f (FailT m) =
         FailT (local f m)
     ask = FailT (ask >>= return . Ok)
+
+instance MonadState r m => MonadState r (FailT m) where
+    get = FailT (get >>= return . Ok)
+    put s = FailT (put s >>= return . Ok)
 
 instance MonadIO m => MonadIO (FailT m) where
     liftIO a = FailT (liftIO a >>= (return . Ok))
