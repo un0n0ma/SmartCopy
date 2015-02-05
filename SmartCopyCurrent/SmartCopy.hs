@@ -31,10 +31,11 @@ import "mtl" Control.Monad.Writer
 
 class SmartCopy a where
 --    version :: Version a
-    writeSmart :: (SmartCopy a, Monad m) => SerializationFormat m r -> a -> m ()
-    readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat i m -> m a
+    writeSmart :: (SmartCopy a, Monad m) => SerializationFormat m -> a -> m ()
+    readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat m -> m a
 
 
+{-
 serializeSmart :: (Monad m, SmartCopy a)
                => SerializationFormat m r -> a -> r
 serializeSmart fmt a = (runSerialization fmt) (writeSmart fmt a)
@@ -42,6 +43,7 @@ serializeSmart fmt a = (runSerialization fmt) (writeSmart fmt a)
 parseSmart :: (Functor m, Monad m, Applicative m, SmartCopy a)
            => ParseFormat i m -> i -> Fail a
 parseSmart fmt = (runParser fmt) (readSmart fmt)
+-}
 
 
 instance SmartCopy Int where
@@ -57,19 +59,17 @@ instance SmartCopy Int where
     writeSmart fmt i =
         writePrimitive fmt $ PrimInt i
         
-data SerializationFormat m r
+data SerializationFormat m
     = SerializationFormat
-    { runSerialization :: m () -> r
-    , withCons :: Cons -> m () -> m ()
+    { withCons :: Cons -> m () -> m ()
     , withField :: Field -> m () -> m ()
     , withRepetition :: forall a. (a -> m ()) -> [a] -> m ()
     , writePrimitive :: Prim -> m ()
     }
 
-data ParseFormat i m
+data ParseFormat m
     = ParseFormat
-    { runParser :: forall a. m a -> i -> Fail a
-    , readCons :: forall a. [(Cons, m a)] -> m a
+    { readCons :: forall a. [(Cons, m a)] -> m a
     , readField :: forall a. Field -> m a -> m a
     , readRepetition :: forall a. m a -> m [a]
     , readPrim :: m Prim

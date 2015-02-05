@@ -8,11 +8,12 @@ module TestInstances where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
-import JSON
+import qualified JSON as J
+import qualified StringFormat as S
+import qualified XmlLikeFormat as X
+
 import MonadTypesInstances
 import SmartCopy
-import StringFormat
-import XmlLikeFormat
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
@@ -339,74 +340,74 @@ main = do args <- getArgs
           case args of
             "json":_ ->
                 do putStrLn "TESTING MAPPEND:"
-                   liftIO $ print (serializeSmart jsonSerializationFormat some1)
-                   liftIO $ print (serializeSmart jsonSerializationFormat some2)
+                   liftIO $ print (J.serializeSmart some1)
+                   liftIO $ print (J.serializeSmart some2)
                    putStrLn "PARSING JSON Values:"
-                   liftIO $ print (parseSmart jsonParseFormat v3 :: Fail Easy)
-                   liftIO $ print (parseSmart jsonParseFormat v5 :: Fail FooBar)
-                   liftIO $ print (parseSmart jsonParseFormat v6 :: Fail FooBar)
+                   liftIO $ print (J.parseSmart v3 :: Fail Easy)
+                   liftIO $ print (J.parseSmart v5 :: Fail FooBar)
+                   liftIO $ print (J.parseSmart v6 :: Fail FooBar)
                    putStrLn "DATATYPES as JSON Values:"
-                   liftIO $ print (serializeSmart jsonSerializationFormat (MyDouble 23))
-                   liftIO $ print (serializeSmart jsonSerializationFormat (Easy 42))
-                   liftIO $ print (serializeSmart jsonSerializationFormat v1)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v2)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v7)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v8)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v10)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v11)
-                   liftIO $ print (serializeSmart jsonSerializationFormat v12)
+                   liftIO $ print (J.serializeSmart (MyDouble 23))
+                   liftIO $ print (J.serializeSmart (Easy 42))
+                   liftIO $ print (J.serializeSmart v1)
+                   liftIO $ print (J.serializeSmart v2)
+                   liftIO $ print (J.serializeSmart v7)
+                   liftIO $ print (J.serializeSmart v8)
+                   liftIO $ print (J.serializeSmart v10)
+                   liftIO $ print (J.serializeSmart v11)
+                   liftIO $ print (J.serializeSmart v12)
                    putStrLn "ENCODING:"
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v8))
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v7))
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v9))
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v10))
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v11))
-                   liftIO $ BSL.putStrLn (encode (serializeSmart jsonSerializationFormat v12))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v8))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v7))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v9))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v10))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v11))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v12))
             "string":_ ->
                 do putStrLn "DATATYPES as String Values:"
-                   liftIO $ print (serializeSmart stringSerializationFormat v8)
-                   liftIO $ print (serializeSmart stringSerializationFormat (Easy 42))
-                   liftIO $ print (serializeSmart stringSerializationFormat v2)
-                   liftIO $ print (serializeSmart stringSerializationFormat (MyDouble 23))
-                   liftIO $ print (serializeSmart stringSerializationFormat v1)
-                   liftIO $ print (serializeSmart stringSerializationFormat v7)
-                   liftIO $ print (serializeSmart stringSerializationFormat v10)
-                   liftIO $ print (serializeSmart stringSerializationFormat v11)
-                   liftIO $ print (serializeSmart stringSerializationFormat v12)
-                   liftIO $ print (serializeSmart stringSerializationFormat some1)
-                   liftIO $ print (serializeSmart stringSerializationFormat some2)
-                   liftIO $ print (serializeSmart stringSerializationFormat s6parsed)
+                   liftIO $ print (S.serializeSmart v8)
+                   liftIO $ print (S.serializeSmart (Easy 42))
+                   liftIO $ print (S.serializeSmart v2)
+                   liftIO $ print (S.serializeSmart (MyDouble 23))
+                   liftIO $ print (S.serializeSmart v1)
+                   liftIO $ print (S.serializeSmart v7)
+                   liftIO $ print (S.serializeSmart v10)
+                   liftIO $ print (S.serializeSmart v11)
+                   liftIO $ print (S.serializeSmart v12)
+                   liftIO $ print (S.serializeSmart some1)
+                   liftIO $ print (S.serializeSmart some2)
+                   liftIO $ print (S.serializeSmart s6parsed)
                    putStrLn "PARSING String Values:"
-                   liftIO $ print (parseSmart stringParseFormat somestring1 :: Fail Some)
-                   liftIO $ print (parseSmart stringParseFormat somestring2 :: Fail Some')
-                   liftIO $ print (parseSmart stringParseFormat s1 :: Fail Easy)
-                   liftIO $ print (parseSmart stringParseFormat s2 :: Fail FooBar)
-                   liftIO $ print (parseSmart stringParseFormat s3 :: Fail FooBar)
-                   liftIO $ print (parseSmart stringParseFormat s4 :: Fail ArrType)
-                   liftIO $ print (parseSmart stringParseFormat s5 :: Fail ArrTypeBar)
-                   liftIO $ print (parseSmart stringParseFormat s6 :: Fail ArrTypeBar)
-                   liftIO $ print (parseSmart stringParseFormat s7 :: Fail ArrTypeFooBar)
+                   liftIO $ print (S.parseSmart somestring1 :: Fail Some)
+                   liftIO $ print (S.parseSmart somestring2 :: Fail Some')
+                   liftIO $ print (S.parseSmart s1 :: Fail Easy)
+                   liftIO $ print (S.parseSmart s2 :: Fail FooBar)
+                   liftIO $ print (S.parseSmart s3 :: Fail FooBar)
+                   liftIO $ print (S.parseSmart s4 :: Fail ArrType)
+                   liftIO $ print (S.parseSmart s5 :: Fail ArrTypeBar)
+                   liftIO $ print (S.parseSmart s6 :: Fail ArrTypeBar)
+                   liftIO $ print (S.parseSmart s7 :: Fail ArrTypeFooBar)
             "xml":_ ->
                 do putStrLn "DATATYPES xml-encoded:"
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v9)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v2)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat (MyDouble 23))
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat (Easy 42))
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v1)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v7)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v8)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v10)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v11)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat v12)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat some1)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat some2)
-                   liftIO $ putStrLn (serializeSmart xmlLikeSerializationFormat s6parsed)
+                   liftIO $ putStrLn (X.serializeSmart v9)
+                   liftIO $ putStrLn (X.serializeSmart v2)
+                   liftIO $ putStrLn (X.serializeSmart (MyDouble 23))
+                   liftIO $ putStrLn (X.serializeSmart (Easy 42))
+                   liftIO $ putStrLn (X.serializeSmart v1)
+                   liftIO $ putStrLn (X.serializeSmart v7)
+                   liftIO $ putStrLn (X.serializeSmart v8)
+                   liftIO $ putStrLn (X.serializeSmart v10)
+                   liftIO $ putStrLn (X.serializeSmart v11)
+                   liftIO $ putStrLn (X.serializeSmart v12)
+                   liftIO $ putStrLn (X.serializeSmart some1)
+                   liftIO $ putStrLn (X.serializeSmart some2)
+                   liftIO $ putStrLn (X.serializeSmart s6parsed)
                    putStrLn "PARSING XML:"
-                   liftIO $ print (parseSmart xmlLikeParseFormat xml1 :: Fail Easy)
-                   liftIO $ print (parseSmart xmlLikeParseFormat xml3 :: Fail Bla)
-                   liftIO $ print (parseSmart xmlLikeParseFormat xml4 :: Fail Some)
-                   liftIO $ print (parseSmart xmlLikeParseFormat xml2 :: Fail FooBar)
-                   liftIO $ print (parseSmart xmlLikeParseFormat xml5 :: Fail Some')
+                   liftIO $ print (X.parseSmart xml1 :: Fail Easy)
+                   liftIO $ print (X.parseSmart xml3 :: Fail Bla)
+                   liftIO $ print (X.parseSmart xml4 :: Fail Some)
+                   liftIO $ print (X.parseSmart xml2 :: Fail FooBar)
+                   liftIO $ print (X.parseSmart xml5 :: Fail Some')
             _  ->
                 do putStrLn $ "You need to specify a format to display tested examplesin.\
                               \ Valid formats at this moment are: " ++ show fmtList

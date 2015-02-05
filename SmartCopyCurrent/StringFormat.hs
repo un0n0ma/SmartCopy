@@ -24,12 +24,18 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 
-stringSerializationFormat :: SerializationFormat (Writer String) String
+
+serializeSmart a = runSerialization (writeSmart stringSerializationFormat a)
+    where runSerialization m = do snd $ runWriter m
+
+parseSmart :: SmartCopy a => String -> Fail a
+parseSmart = runParser (readSmart stringParseFormat)
+    where runParser action value = evalState (runFailT action) value
+
+stringSerializationFormat :: SerializationFormat (Writer String)
 stringSerializationFormat
     = SerializationFormat
-    { runSerialization =
-          \m -> do snd $ runWriter m
-    , withCons =
+    { withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
     , withField =
@@ -56,11 +62,10 @@ stringSerializationFormat
 
                 
 
-stringParseFormat :: ParseFormat String (FailT (State String))
+stringParseFormat :: ParseFormat (FailT (State String))
 stringParseFormat
     = ParseFormat
-    { runParser = \action value -> evalState (runFailT action) value
-    , readCons =
+    { readCons =
          \cons ->
              do str <- get
                 let conNames = map (cname . fst) cons

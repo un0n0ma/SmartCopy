@@ -25,11 +25,17 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 
-xmlLikeSerializationFormat :: SerializationFormat (Writer String) String
+serializeSmart a = runSerialization (writeSmart xmlLikeSerializationFormat a)
+    where runSerialization m = do snd $ runWriter m
+
+parseSmart :: SmartCopy a => String -> Fail a
+parseSmart = runParser (readSmart xmlLikeParseFormat)
+    where runParser action value = evalState (runFailT action) value
+
+xmlLikeSerializationFormat :: SerializationFormat (Writer String)
 xmlLikeSerializationFormat
     = SerializationFormat
-    { runSerialization = \m -> snd $ runWriter m
-    , withCons =
+    { withCons =
           \cons m ->
           do let conName = T.unpack $ cname cons
              tell $ openTag conName
@@ -59,11 +65,10 @@ xmlLikeSerializationFormat
     }
                 
 
-xmlLikeParseFormat :: ParseFormat String (FailT (State String))
+xmlLikeParseFormat :: ParseFormat (FailT (State String))
 xmlLikeParseFormat
     = ParseFormat
-    { runParser = \action value -> evalState (runFailT action) value
-    , readCons =
+    { readCons =
           \cons ->
               do str <- get
                  let conNames = map (T.unpack . cname . fst) cons

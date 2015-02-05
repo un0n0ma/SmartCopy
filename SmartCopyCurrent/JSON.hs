@@ -38,12 +38,17 @@ import Data.Maybe
 encode :: Json.Value -> LBS.ByteString
 encode = encodeUtf8 . toLazyText . fromValue
 
-jsonSerializationFormat :: SerializationFormat (Writer Json.Value) Json.Value
+serializeSmart a = runSerialization (writeSmart jsonSerializationFormat a)
+    where runSerialization m = do snd $ runWriter m
+
+parseSmart :: SmartCopy a => Json.Value -> Fail a
+parseSmart = runParser (readSmart jsonParseFormat)
+    where runParser action value = runReader (runFailT action) value
+
+jsonSerializationFormat :: SerializationFormat (Writer Json.Value)
 jsonSerializationFormat
     = SerializationFormat
-    { runSerialization =
-          \m -> do snd $ runWriter m
-    , withCons =
+    { withCons =
           \cons ma ->
           case ctagged cons of
             False ->
@@ -90,11 +95,10 @@ jsonSerializationFormat
                   tell $ Json.Number $ fromFloatDigits d
     }
 
-jsonParseFormat :: ParseFormat Json.Value (FailT (Reader Json.Value))
+jsonParseFormat :: ParseFormat (FailT (Reader Json.Value))
 jsonParseFormat
     = ParseFormat
-    { runParser = \action value -> runReader (runFailT action) value
-    , readCons =
+    { readCons =
         \cons ->
             do val <- ask
                let conNames = map (cname . fst) cons
