@@ -88,31 +88,31 @@ tests_JSON
         , TestCase $
              do let sResult = J.serializeSmart  Test.v9
                 pResult :: Test.Bla <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v9 pResult
+                assertEqual "Serializing as JSON Value" Test.v9 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.v10
                 pResult :: Test.ArrType <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v10 pResult
+                assertEqual "Serializing as JSON Value" Test.v10 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.v8
                 pResult :: Test.FooBar <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v8 pResult
+                assertEqual "Serializing as JSON Value" Test.v8 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.v7
                 pResult :: Test.FooBar <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v7 pResult
+                assertEqual "Serializing as JSON Value" Test.v7 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.v1
                 pResult :: Test.Foo <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v1 pResult
+                assertEqual "Serializing as JSON Value" Test.v1 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.v2
                 pResult :: Test.Foo <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v2 pResult
+                assertEqual "Serializing as JSON Value" Test.v2 pResult
         , TestCase $
              do let sResult = J.serializeSmart  Test.some1
                 pResult :: Test.Some <- fromOk $ J.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.some1 pResult
+                assertEqual "Serializing as JSON Value" Test.some1 pResult
         , TestCase $
              do let sResult1 = J.serializeSmart  Test.some2
                 let sResult2 = Json.toJSON Test.some2

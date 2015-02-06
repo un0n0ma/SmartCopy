@@ -51,7 +51,7 @@ xmlLikeSerializationFormat
              m
              tell $ closeTag conName
     , withField =
-          \_ m ->
+          \m ->
               do fields <- get
                  case fields of
                    field:rest ->
@@ -111,7 +111,7 @@ xmlLikeParseFormat
                                  \constructor for tag " ++ show con ++
                                  ". Only found " ++ show conNames ++ "."
     , readField =
-          \_ ma ->
+          \ma ->
               do str <- get
                  fields <- lift $ lift get
                  case fields of

@@ -34,18 +34,6 @@ class SmartCopy a where
     writeSmart :: (SmartCopy a, Monad m) => SerializationFormat m -> a -> m ()
     readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat m -> m a
 
-
-{-
-serializeSmart :: (Monad m, SmartCopy a)
-               => SerializationFormat m r -> a -> r
-serializeSmart fmt a = (runSerialization fmt) (writeSmart fmt a)
-
-parseSmart :: (Functor m, Monad m, Applicative m, SmartCopy a)
-           => ParseFormat i m -> i -> Fail a
-parseSmart fmt = (runParser fmt) (readSmart fmt)
--}
-
-
 instance SmartCopy Int where
     readSmart fmt =
         do prim <- readPrim fmt
@@ -62,7 +50,7 @@ instance SmartCopy Int where
 data SerializationFormat m
     = SerializationFormat
     { withCons :: Cons -> m () -> m ()
-    , withField :: Field -> m () -> m ()
+    , withField :: m () -> m ()
     , withRepetition :: forall a. (a -> m ()) -> [a] -> m ()
     , writePrimitive :: Prim -> m ()
     }
@@ -70,11 +58,10 @@ data SerializationFormat m
 data ParseFormat m
     = ParseFormat
     { readCons :: forall a. [(Cons, m a)] -> m a
-    , readField :: forall a. Field -> m a -> m a
+    , readField :: forall a. m a -> m a
     , readRepetition :: forall a. m a -> m [a]
     , readPrim :: m Prim
     }
-
 
 
 -------------------------------------------------------------------------------
@@ -88,8 +75,6 @@ data Cons
     , ctagged :: Bool
     , cindex :: Int
     }
-
-data Field = Index Int | Labeled Label
 
 type Label = T.Text
 

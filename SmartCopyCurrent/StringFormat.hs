@@ -39,7 +39,7 @@ stringSerializationFormat
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
     , withField =
-          \_ ma -> wrapM ma
+          \ma -> wrapM ma
     , withRepetition =
           \wf rep ->
               do tell "["
@@ -81,7 +81,7 @@ stringParseFormat
                              fail $ "Parsing failure. Didnt't find constructor for tag "
                                    ++ show con ++ ". Only got " ++ show conNames
     , readField =
-          \_ ma ->
+          \ma ->
               do rest <- readOpen
                  res <- ma
                  _ <- readClose
