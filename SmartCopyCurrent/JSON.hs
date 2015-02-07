@@ -64,11 +64,11 @@ jsonSerializationFormat
                        Left res <- get
                        lift $ put $ arConcat res
                   Right ls ->
-                    do let fields = Json.object (zip ls (repeat Json.Null))
-                       lift $ put fields
+                    do let fields = zip ls (repeat Json.Null)
+                       put $ Right fields
                        _ <- ma
-                       res <- lift get
-                       lift $ put res
+                       Right res <- get
+                       lift $ put $ Json.object res
             True ->
                 case cfields cons of
                   Left 0 ->
@@ -169,14 +169,11 @@ jsonParseFormat
                case length cons of
                  0 -> fail "Parsing failure. No constructor to look up."
                  1 -> case val of
-                        Json.Object obj ->
-                            do let [(con, args)] = M.toList obj
-                               case lookup con (zip conNames parsers) of
-                                 Just parser ->
-                                    do _ <- putFieldsFromObj con cons                                  
-                                       local (const args) parser
-                                 Nothing ->
-                                    fail $ msg (T.unpack con) conNames
+                        obj@(Json.Object _) ->
+                            do let con = head conNames
+                                   parser = head parsers
+                               _ <- putFieldsFromObj con cons
+                               local (const obj) parser
                         ar@(Json.Array _) ->
                             do _ <- putFieldsFromArr ar
                                local (const ar) (head parsers)
