@@ -98,7 +98,7 @@ instance Json.FromJSON BoolTest'
 
 instance SmartCopy BoolTest where
     readSmart fmt =
-        readCons fmt [((C "BoolTest" (Left 1) False 0), readBool)]
+        readCons fmt [(C "BoolTest" (Left 1) False 0, readBool)]
         where readBool = do b :: Bool <- readField fmt $ readSmart fmt
                             return $ BoolTest b
     writeSmart fmt (BoolTest b) =
@@ -106,7 +106,7 @@ instance SmartCopy BoolTest where
 
 instance SmartCopy BoolTest' where
     readSmart fmt =
-        readCons fmt [((C "BoolTest'" (Right ["blist", "b", "slist"]) False 0), readBT)]
+        readCons fmt [(C "BoolTest'" (Right ["blist", "b", "slist"]) False 0, readBT)]
         where readBT = do blist <- readField fmt $ readRepetition fmt 
                           b <- readField fmt $ readSmart fmt
                           slist <- readField fmt $ readRepetition fmt
@@ -119,7 +119,7 @@ instance SmartCopy BoolTest' where
 
 instance SmartCopy StringTest where
     readSmart fmt =
-        readCons fmt [((C "StringTest" (Left 1) False 0), readString)]
+        readCons fmt [(C "StringTest" (Left 1) False 0, readString)]
         where readString = do s :: String <- readField fmt $ readSmart fmt
                               return $ StringTest s
     writeSmart fmt (StringTest s) =
@@ -127,12 +127,10 @@ instance SmartCopy StringTest where
 
 instance SmartCopy StringTest' where
     readSmart fmt =
-        readCons fmt [((C "StringTest'" (Left 2) False 0), readFields)]
+        readCons fmt [(C "StringTest'" (Left 2) False 0, readFields)]
         where readFields = do s :: String <- readField fmt $ readSmart fmt
-                              ints <- readField fmt $ readInts
+                              ints <- readField fmt $ readRepetition fmt
                               return $ StringTest' s ints
-              readInts = do arr <- readRepetition fmt
-                            return arr
     writeSmart fmt (StringTest' s ints) =
         withCons fmt (C "StringTest'" (Left 2) False 0) writeFields
         where writeFields = do withField fmt (writeSmart fmt s)
@@ -141,7 +139,7 @@ instance SmartCopy StringTest' where
 
 instance SmartCopy ArrType where
     readSmart fmt =
-        readCons fmt [((C "ArrType" (Left 1) False 0), readInts)]
+        readCons fmt [(C "ArrType" (Left 1) False 0, readInts)]
         where readInts = do ints <- readField fmt $ readRepetition fmt
                             return $ ArrType ints
 
@@ -152,7 +150,7 @@ instance SmartCopy ArrType where
 
 instance SmartCopy ArrTypeBar where
     readSmart fmt =
-        readCons fmt [((C "ArrTypeBar" (Left 1) False 0), readBars)]
+        readCons fmt [(C "ArrTypeBar" (Left 1) False 0, readBars)]
         where readBars = do bars <- readField fmt $ readRepetition fmt
                             return $ ArrTypeBar bars
 
@@ -174,21 +172,21 @@ instance SmartCopy ArrTypeFooBar where
 
 instance SmartCopy Foo where
     readSmart fmt =
-      do readCons fmt [(C "Foo" (Left 2) False 0, readFoo)]
+      readCons fmt [(C "Foo" (Left 2) False 0, readFoo)]
       where readFoo =
                  do int <- readField fmt $ readSmart fmt
                     bar <- readField fmt $ readSmart fmt
                     return $ Foo int bar
 
     writeSmart fmt (Foo i bar) =
-        do withCons fmt (C "Foo" (Left 2) False 0) writeFields
+        withCons fmt (C "Foo" (Left 2) False 0) writeFields
         where writeFields = do withField fmt (writePrimitive fmt $ PrimInt i)
                                withField fmt (writeSmart fmt bar)
 
 instance SmartCopy FooBar where
     readSmart fmt =
-      do readCons fmt [(C "Foo0" (Left 2) True 0, readFoo0),
-                         ((C "Bar0" (Right ["value", "foobar"])  True 1), readFoo1)]
+      readCons fmt [(C "Foo0" (Left 2) True 0, readFoo0),
+                      (C "Bar0" (Right ["value", "foobar"])  True 1, readFoo1)]
       where
         readFoo0 =
                do myBool <- readField fmt $ readSmart fmt
@@ -200,12 +198,12 @@ instance SmartCopy FooBar where
                   return $ Bar0 val foobar
 
     writeSmart fmt (Foo0 bool double) =
-        do withCons fmt (C "Foo0" (Left 2) True 0) writeFields
+        withCons fmt (C "Foo0" (Left 2) True 0) writeFields
         where writeFields =
                 do withField fmt (writeSmart fmt bool)
                    withField fmt (writeSmart fmt double)
     writeSmart fmt (Bar0 int foobar) =
-        do withCons fmt (C "Bar0" (Right ["value", "foobar"]) True 1) writeFields
+        withCons fmt (C "Bar0" (Right ["value", "foobar"]) True 1) writeFields
         where writeFields =
                 do withField fmt (writeSmart fmt int)
                    withField fmt (writeSmart fmt foobar)
@@ -213,12 +211,12 @@ instance SmartCopy FooBar where
 
 instance SmartCopy MyDouble where
     readSmart fmt =
-        do readCons fmt [((C "MyDouble" (Left 1) False 0), readMyDouble)]
-           where readMyDouble = do d <- readField fmt $ readSmart fmt
-                                   return $ MyDouble d
+        readCons fmt [(C "MyDouble" (Left 1) False 0, readMyDouble)]
+        where readMyDouble = do d <- readField fmt $ readSmart fmt
+                                return $ MyDouble d
     writeSmart fmt (MyDouble d) =
-        do withCons fmt (C "MyDouble" (Left 1) False 0) $ withField fmt $
-                                                          writeSmart fmt d
+        withCons fmt (C "MyDouble" (Left 1) False 0) $ withField fmt $
+                                                       writeSmart fmt d
 
 instance SmartCopy Double where
     readSmart fmt = do r <- readPrim fmt
@@ -233,32 +231,32 @@ instance SmartCopy MyBool where
     readSmart fmt =
         readCons fmt [(C "MyTrue" (Left 0) False 0, return MyTrue), (C "MyFalse" (Left 0) False 1, return MyFalse)]
     writeSmart fmt MyTrue =
-        do withCons fmt (C "MyTrue" (Left 0) False 0) $ return ()
+        withCons fmt (C "MyTrue" (Left 0) False 0) $ return ()
     writeSmart fmt MyFalse =
-        do withCons fmt (C "MyFalse" (Left 0) False 0) $ return ()
+        withCons fmt (C "MyFalse" (Left 0) False 0) $ return ()
 
 instance SmartCopy Easy where
     readSmart fmt =
         readCons fmt [(C "Easy" (Left 1) False 0, readEasy)]
         where
           readEasy =
-              Easy <$> (readField fmt $ readSmart fmt)
+              Easy <$> readField fmt $ readSmart fmt
     writeSmart fmt (Easy a) =
-        do withCons fmt (C "Easy" (Left 1) False 0) $ withField fmt $
-                                                      writePrimitive fmt (PrimInt a)
+        withCons fmt (C "Easy" (Left 1) False 0) $ withField fmt $
+                                                   writePrimitive fmt (PrimInt a)
 
 instance SmartCopy Bla where
     readSmart fmt =
         readCons fmt [(C "Bla" (Left 0) False 0, return Bla)]
     writeSmart fmt Bla =
-        do withCons fmt (C "Bla" (Left 0) False 0) (return ())
+        withCons fmt (C "Bla" (Left 0) False 0) (return ())
 
 instance SmartCopy Bar where
     writeSmart fmt (BarLeft) =
-        do withCons fmt (C "BarLeft" (Left 0) True 0) (return ())
+        withCons fmt (C "BarLeft" (Left 0) True 0) (return ())
     writeSmart fmt (BarRight foo) =
-        do withCons fmt (C "BarRight" (Left 1) True 1) 
-               (withField fmt $ writeSmart fmt foo)
+        withCons fmt (C "BarRight" (Left 1) True 1) $
+            withField fmt $ writeSmart fmt foo
     readSmart fmt =
         readCons fmt [ (C "BarLeft" (Left 0) True 0, readBarLeft)
                        , (C "BarRight" (Left 1) True 1, readBarRight)]
@@ -269,7 +267,7 @@ instance SmartCopy Bar where
 
 instance SmartCopy Some' where
     writeSmart fmt (Some' spam') =
-        do withCons fmt (C "Some'" (Left 1) False 0) $ withField fmt (writeSmart fmt spam')
+        withCons fmt (C "Some'" (Left 1) False 0) $ withField fmt (writeSmart fmt spam')
     readSmart fmt =
         readCons fmt [(C "Some'" (Left 1) False 0, readSome')]
         where readSome' = do spam <- readField fmt (readSmart fmt)
@@ -277,11 +275,11 @@ instance SmartCopy Some' where
 
 instance SmartCopy Some where
     writeSmart fmt (Some spam int) =
-        do withCons fmt (C "Some" (Left 2) False 0) fields
+        withCons fmt (C "Some" (Left 2) False 0) fields
            where fields = do withField fmt (writeSmart fmt spam)
                              withField fmt (writeSmart fmt int)
     readSmart fmt =
-        do readCons fmt [(C "Some" (Left 2) False 0, readSome)]
+        readCons fmt [(C "Some" (Left 2) False 0, readSome)]
         where readSome = do spam <- readField fmt (readSmart fmt)
                             int <- readField fmt (readSmart fmt)
                             return $ Some spam int
@@ -289,8 +287,8 @@ instance SmartCopy Some where
                              
 instance SmartCopy Spam where
     writeSmart fmt (Spam int) =
-        do withCons fmt (C "Spam" (Left 1) False 0) $ withField fmt $
-                         (writeSmart fmt int)
+        withCons fmt (C "Spam" (Left 1) False 0) $ withField fmt $
+                         writeSmart fmt int
     readSmart fmt =
         readCons fmt [(C "Spam" (Left 1) False 0, readSpam)]
         where readSpam =
@@ -299,7 +297,7 @@ instance SmartCopy Spam where
 
 instance SmartCopy Spam' where
     writeSmart fmt (Spam' int1 int2) =
-        do withCons fmt (C "Spam'" (Left 2) False 0) writeFields
+        withCons fmt (C "Spam'" (Left 2) False 0) writeFields
         where writeFields = 
                do withField fmt (writeSmart fmt int1)
                   withField fmt (writeSmart fmt int2)
@@ -489,8 +487,8 @@ main = do args <- getArgs
                    liftIO $ print (X.parseSmart xml2 :: Fail FooBar)
                    liftIO $ print (X.parseSmart xml5 :: Fail Some')
             _  ->
-                do putStrLn $ "You need to specify a format to display tested examplesin.\
-                              \ Valid formats at this moment are: " ++ show fmtList
+                putStrLn $ "You need to specify a format to display tested examplesin.\
+                           \ Valid formats at this moment are: " ++ show fmtList
                              
                 
 

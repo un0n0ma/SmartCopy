@@ -123,11 +123,11 @@ xmlLikeParseFormat
                           lift $ lift $ put xs
                           return res
     , readRepetition =
-          do whileJust enterElemMaybe $
-                 \_ ->
-                     do res <- readSmart xmlLikeParseFormat
-                        _ <- readCloseWith "value"
-                        return res
+          whileJust enterElemMaybe $
+              \_ ->
+                  do res <- readSmart xmlLikeParseFormat
+                     _ <- readCloseWith "value"
+                     return res
     , readPrim =
           do str' <- get
              let str = filter (/=' ') str'
@@ -148,7 +148,7 @@ xmlLikeParseFormat
                           _ ->
                             do lift $ put $ snd $ delimit str
                                return $ PrimString $ fst $ delimit str
-                            where delimit str = L.span (/='<') str
+                            where delimit = L.span (/='<')
     }
 
 openTag s = "<" ++ s ++ ">"
@@ -163,54 +163,44 @@ dropLast n xs = take (length xs - n) xs
 readOpen :: FailT (StateT String (State [String])) String
 readOpen =
     do str <- get
-       case isTagOpen str of
-         True ->
-             do let ('<':tag, '>':after)  = L.span (/='>') str
-                put after
-                return tag
-         False ->
-             fail $ "Didn't find an opening tag at " ++ str ++ "."
-    where isTagOpen s = (startswith "<" s) && (not $ startswith "</" s)
+       if isTagOpen str
+          then do let ('<':tag, '>':after)  = L.span (/='>') str
+                  put after
+                  return tag
+          else fail $ "Didn't find an opening tag at " ++ str ++ "."
+    where isTagOpen s = startswith "<" s && not $ startswith "</" s
                  
 readClose :: FailT (StateT String (State [String])) String
 readClose =
     do str <- get
-       case startswith "</" str of
-         True ->
-             do let (tag, '>':after) = L.span (/='>') str
-                put after
-                return tag
-         False ->
-             fail $ "Didn't find a closing tag at " ++ str ++ "."
+       if startswith "</" str
+          then do let (tag, '>':after) = L.span (/='>') str
+                  put after
+                  return tag
+          else fail $ "Didn't find a closing tag at " ++ str ++ "."
 
 readOpenWith :: String -> FailT (StateT String (State [String])) String
 readOpenWith s =
     do str <- get
-       case startswith (openTag s) str of
-         True ->
-            do let (tag, '>':after) = L.span (/='>') str
-               put after
-               return ""
-         False ->
-            fail $ "Didn't find an opening tag for " ++ s ++
-                   " at " ++ str ++ "."
+       if startswith (openTag s) str
+          then do let (tag, '>':after) = L.span (/='>') str
+                  put after
+                  return ""
+          else fail $ "Didn't find an opening tag for " ++ s ++
+                      " at " ++ str ++ "."
 
 readCloseWith :: String -> FailT (StateT String (State [String])) String
 readCloseWith s =
     do str <- get
-       case startswith (closeTag s) str of
-         True ->
-            do let (tag, '>':after) = L.span (/='>') str
-               put after
-               return ""
-         False ->
-            fail $ "Didn't find a closing tag for " ++ s ++
-                   " at " ++ str ++ "."
+       if startswith (closeTag s) str
+          then do let (tag, '>':after) = L.span (/='>') str
+                  put after
+                  return ""
+          else fail $ "Didn't find a closing tag for " ++ s ++
+                      " at " ++ str ++ "."
 
 enterElemMaybe =
     do str <- get
-       case startswith (openTag "value") str of
-         True ->
-             liftM Just (readOpenWith "value")
-         False ->
-             return Nothing
+       if startswith (openTag "value") str
+          then liftM Just (readOpenWith "value")
+          else return Nothing

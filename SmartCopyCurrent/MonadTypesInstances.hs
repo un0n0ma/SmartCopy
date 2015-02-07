@@ -51,19 +51,19 @@ instance (Applicative m, Monad m) => Applicative (FailT m) where
                          return $ f' <*> m'
 
 instance Functor m => Functor (FailT m) where
-    fmap f = FailT . (fmap (fmap f)) . runFailT
+    fmap f = FailT . fmap (fmap f) . runFailT
 
 instance MonadReader r m => MonadReader r (FailT m) where
     local f (FailT m) =
         FailT (local f m)
-    ask = FailT (ask >>= return . Ok)
+    ask = FailT (liftM Ok ask)
 
 instance MonadState r m => MonadState r (FailT m) where
-    get = FailT (get >>= return . Ok)
-    put s = FailT (put s >>= return . Ok)
+    get = FailT (liftM Ok get)
+    put s = FailT (liftM Ok (put s))
 
 instance MonadIO m => MonadIO (FailT m) where
-    liftIO a = FailT (liftIO a >>= (return . Ok))
+    liftIO a = FailT (liftM Ok (liftIO a))
 
 instance Monad m => Monad (FailT m) where
     return a = FailT $ return $ Ok a

@@ -41,7 +41,7 @@ encode :: Json.Value -> LBS.ByteString
 encode = encodeUtf8 . toLazyText . fromValue
 
 serializeSmart a = runSerialization (writeSmart jsonSerializationFormat a)
-    where runSerialization m = snd $ runState (evalStateT m (Left Json.Null)) Json.Null
+    where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseSmart :: SmartCopy a => Json.Value -> Fail a
 parseSmart = runParser (readSmart jsonParseFormat)
@@ -53,41 +53,39 @@ jsonSerializationFormat
     = SerializationFormat
     { withCons =
           \cons ma ->
-          case ctagged cons of
-            False ->
-                case cfields cons of
-                  Left 0 ->
-                    lift $ put $ Json.String $ cname cons
-                  Left n ->
-                    do put $ Left $ Json.Array V.empty
-                       _ <- ma
-                       Left res <- get
-                       lift $ put $ arConcat res
-                  Right ls ->
-                    do let fields = zip ls (repeat Json.Null)
-                       put $ Right fields
-                       _ <- ma
-                       Right res <- get
-                       lift $ put $ Json.object res
-            True ->
-                case cfields cons of
-                  Left 0 ->
-                    lift $ put $ Json.object [("tag", Json.String $ cname cons),
-                                       ("contents", Json.Array V.empty)]
-                  Left n ->
-                    do put $ Left $ Json.Array V.empty
-                       _ <- ma
-                       Left res <- get
-                       let resObj = Json.object [("tag", Json.String $ cname cons),
-                                                 ("contents", arConcat res)]
-                       lift $ put resObj
-                  Right ls ->
-                    do put $ Right $ zip ls (repeat Json.Null)
-                       _ <- ma
-                       Right res <- get
-                       let resObj 
-                            = Json.object $ ("tag", Json.String $ cname cons):res
-                       lift $ put resObj
+          if ctagged cons
+             then case cfields cons of
+                    Left 0 ->
+                      lift $ put $ Json.object [("tag", Json.String $ cname cons),
+                                         ("contents", Json.Array V.empty)]
+                    Left n ->
+                      do put $ Left $ Json.Array V.empty
+                         _ <- ma
+                         Left res <- get
+                         let resObj = Json.object [("tag", Json.String $ cname cons),
+                                                   ("contents", arConcat res)]
+                         lift $ put resObj
+                    Right ls ->
+                      do put $ Right $ zip ls (repeat Json.Null)
+                         _ <- ma
+                         Right res <- get
+                         let resObj 
+                              = Json.object $ ("tag", Json.String $ cname cons):res
+                         lift $ put resObj
+             else case cfields cons of
+                   Left 0 ->
+                     lift $ put $ Json.String $ cname cons
+                   Left n ->
+                     do put $ Left $ Json.Array V.empty
+                        _ <- ma
+                        Left res <- get
+                        lift $ put $ arConcat res
+                   Right ls ->
+                     do let fields = zip ls (repeat Json.Null)
+                        put $ Right fields
+                        _ <- ma
+                        Right res <- get
+                        lift $ put $ Json.object res
     , withField =
           \ma ->
               do fields <- get
@@ -141,7 +139,7 @@ jsonSerializationFormat
                     accArray acc (tail ar) wf
                     return ()
           takeEmptyField [] notnull =
-              fail $ "Encoding failure. Got more fields than expected for constructor."
+              fail "Encoding failure. Got more fields than expected for constructor."
           takeEmptyField map notnull =
                  case head map of
                    f@(_, Json.Null) -> return (f, notnull ++ tail map)
@@ -178,7 +176,7 @@ jsonParseFormat
                             do _ <- putFieldsFromArr ar
                                local (const ar) (head parsers)
                         otherPrim ->
-                            case (cfields $ fst $ head cons) of
+                            case cfields $ fst $ head cons of
                               Left 0 ->
                                   do let parser = snd $ head cons
                                      local (const otherPrim) parser
@@ -229,25 +227,25 @@ jsonParseFormat
                case fields of
                  [] -> ma
                  xs ->
-                     do case reads $ head xs of
-                          [(num, "")] ->
-                              do v <- ask
-                                 case v of
-                                   Json.Array a  ->
-                                        do res <- local (array . drop num . fromArray) ma
-                                           put $ tail xs
-                                           return res
-                                   n ->
-                                        do res <- local (const n) ma
-                                           put $ tail xs
-                                           return res
-                                           
-                          [] ->
-                              do Json.Object _ <- ask
-                                 let field = T.pack $ head xs
-                                 res <- local (fromJust . (lookup field) . fromObject) ma
-                                 put $ tail xs
-                                 return res
+                     case reads $ head xs of
+                       [(num, "")] ->
+                           do v <- ask
+                              case v of
+                                Json.Array a  ->
+                                     do res <- local (array . drop num . fromArray) ma
+                                        put $ tail xs
+                                        return res
+                                n ->
+                                     do res <- local (const n) ma
+                                        put $ tail xs
+                                        return res
+                                        
+                       [] ->
+                           do Json.Object _ <- ask
+                              let field = T.pack $ head xs
+                              res <- local (fromJust . lookup field . fromObject) ma
+                              put $ tail xs
+                              return res
     , readRepetition =
             do val <- ask
                case val of
@@ -263,7 +261,7 @@ jsonParseFormat
                   return $ PrimDouble $ realToFrac n
              Json.Bool b -> return $ PrimBool b
              Json.String s -> return $ PrimString $ T.unpack s
-             ar@(Json.Array _) -> do
+             ar@(Json.Array _) ->
                     case fromArray ar of
                       Json.Number n:xs -> return $ PrimInt $ floor n
                       Json.Bool b:xs -> return $ PrimBool b

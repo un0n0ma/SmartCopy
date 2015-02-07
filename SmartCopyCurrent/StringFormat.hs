@@ -26,11 +26,11 @@ import Control.Monad.Writer
 
 
 serializeSmart a = runSerialization (writeSmart stringSerializationFormat a)
-    where runSerialization m = do snd $ runWriter m
+    where runSerialization m = snd $ runWriter m
 
 parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (readSmart stringParseFormat)
-    where runParser action value = evalState (runFailT action) value
+    where runParser action = evalState (runFailT action)
 
 stringSerializationFormat :: SerializationFormat (Writer String)
 stringSerializationFormat
@@ -39,17 +39,16 @@ stringSerializationFormat
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
     , withField =
-          \ma -> wrapM ma
+          wrapM
     , withRepetition =
           \rep ->
               do tell "["
                  case length rep of
                    0 -> tell ""
-                   n -> do sequence_ $
-                             map (\a ->
-                                     do writeSmart (stringSerializationFormat) a
-                                        tell ",") (init rep)
-                           writeSmart (stringSerializationFormat) $ last rep
+                   n -> do mapM_ (\a ->
+                                  do writeSmart stringSerializationFormat a
+                                     tell ",") (init rep)
+                           writeSmart stringSerializationFormat $ last rep
                  tell "]"
 
     , writePrimitive =
@@ -79,7 +78,7 @@ stringParseFormat
                      do con <- startCons
                         case lookup (T.pack con) (zip conNames parsers) of
                           Just parser ->
-                             do parser
+                             parser
                           f ->
                              fail $ "Parsing failure. Didnt't find constructor for tag "
                                    ++ show con ++ ". Only got " ++ show conNames
@@ -125,28 +124,26 @@ stringParseFormat
                          parseElem <- mb
                          return $ acc ++ [parseElem]
           readBoolOrString :: String -> FailT (State String) Prim
-          readBoolOrString prim =
-              if startswith "True" prim
-                 then do { put $ drop 4 prim; return $ PrimBool True }
-                 else if startswith "False" prim
-                 then do { put $ drop 5 prim; return $ PrimBool False }
-                 else do { put $ snd $ delimit prim; return $ PrimString $ (fst $ delimit prim) }
-              where delimit str = L.span (/=')') str
+          readBoolOrString prim
+              | startswith "True" prim =
+                do put $ drop 4 prim; return $ PrimBool True
+              | startswith "False" prim =
+                do put $ drop 5 prim; return $ PrimBool False
+              | otherwise =
+                do put $ snd $ delimit prim; return $ PrimString $ fst $ delimit prim
+              where delimit = L.span (/=')')
 
 startCons :: FailT (State String) String
 startCons =
     do str' <- get
        let str = filter (/=' ') str'
-       case hasNested str of
-         True ->
-             do let (cons, after) = L.span (/='(') str
-                put after
-                return cons
-         False ->
-             do let (cons, after) = L.span (/=')') str
-                put after
-                return cons
-
+       if hasNested str
+          then do let (cons, after) = L.span (/='(') str
+                  put after
+                  return cons
+          else do let (cons, after) = L.span (/=')') str
+                  put after
+                  return cons
 
 readOpen :: FailT (State String) String
 readOpen =
