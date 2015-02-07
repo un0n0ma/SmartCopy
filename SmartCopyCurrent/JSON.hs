@@ -101,13 +101,13 @@ jsonSerializationFormat
                        do ma
                           value <- lift get
                           put $ Left $ Json.Array $ ar `V.snoc` value
-                   f -> fail $ show f
+                   f -> fail $ "No fields found at " ++ show f
 
     , withRepetition =
-          \wf ar ->
+          \ar ->
             case length ar of
               0 -> return ()
-              n -> do accArray [] ar wf
+              n -> do accArray [] ar (writeSmart jsonSerializationFormat)
                       ar <- lift get
                       lift $ put $ arConcat ar
 
@@ -251,6 +251,14 @@ jsonParseFormat
                                  res <- local (fromJust . (lookup field) . fromObject) ma
                                  put $ tail xs
                                  return res
+    , readRepetition =
+            do val <- ask
+               case val of
+                 Json.Array ar ->
+                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
+                 _ ->
+                     fail $ "Parsing failure. Was expecting array at " ++ show val ++"."
+              
     , readPrim =
         do x <- ask
            case x of

@@ -46,12 +46,40 @@ instance SmartCopy Int where
             
     writeSmart fmt i =
         writePrimitive fmt $ PrimInt i
+
+
+instance SmartCopy String where
+    readSmart fmt =
+        do prim <- readPrim fmt
+           fromPrimString prim
+        where fromPrimString prim =
+                  case prim of
+                    PrimString s -> return s
+                    _ -> fail $ "Was expecting string primitive, not " ++ show prim
+    writeSmart fmt s =
+        writePrimitive fmt $ PrimString s
+
+
+instance SmartCopy Bool where
+    readSmart fmt =
+        do prim <- readPrim fmt
+           fromPrimBool prim
+        where fromPrimBool prim =
+                  case prim of
+                    PrimBool b -> return b
+                    _ -> fail $ "Was expecting bool primitive, not " ++ show prim
+    writeSmart fmt b =
+        writePrimitive fmt $ PrimBool b
         
+-------------------------------------------------------------------------------
+-- Format records
+-------------------------------------------------------------------------------
+
 data SerializationFormat m
     = SerializationFormat
     { withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
-    , withRepetition :: forall a. (a -> m ()) -> [a] -> m ()
+    , withRepetition :: SmartCopy a => [a] -> m ()
     , writePrimitive :: Prim -> m ()
     }
 
@@ -59,7 +87,7 @@ data ParseFormat m
     = ParseFormat
     { readCons :: forall a. [(Cons, m a)] -> m a
     , readField :: forall a. m a -> m a
-    , readRepetition :: forall a. m a -> m [a]
+    , readRepetition :: SmartCopy a => m [a]
     , readPrim :: m Prim
     }
 

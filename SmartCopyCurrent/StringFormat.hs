@@ -41,12 +41,15 @@ stringSerializationFormat
     , withField =
           \ma -> wrapM ma
     , withRepetition =
-          \wf rep ->
+          \rep ->
               do tell "["
                  case length rep of
                    0 -> tell ""
-                   n -> do sequence_ $ map (\a -> do { wf a; tell ","}) (init rep)
-                           wf $ last rep
+                   n -> do sequence_ $
+                             map (\a ->
+                                     do writeSmart (stringSerializationFormat) a
+                                        tell ",") (init rep)
+                           writeSmart (stringSerializationFormat) $ last rep
                  tell "]"
 
     , writePrimitive =
@@ -88,22 +91,21 @@ stringParseFormat
                  return res
 
     , readRepetition =
-          \mb ->
-              do str' <- get
-                 let str = filter (/=' ') str'
-                 case str of
-                   '[':xs ->
-                       do let (list, rest) = L.span (/= ']') xs
-                          case rest of
-                            ']':xs -> do
-                                put list
-                                res <- mapWithDelim mb list []
-                                put xs
-                                return res 
-                            _ -> fail $
-                                 "No ']' found to terminate list at " ++ str
-                   f      ->
-                       fail $ "No '[' found to initiate list at " ++ str
+          do str' <- get
+             let str = filter (/=' ') str'
+             case str of
+               '[':xs ->
+                   do let (list, rest) = L.span (/= ']') xs
+                      case rest of
+                        ']':xs -> do
+                            put list
+                            res <- mapWithDelim (readSmart stringParseFormat) list []
+                            put xs
+                            return res 
+                        _ -> fail $
+                             "No ']' found to terminate list at " ++ str
+               f      ->
+                   fail $ "No '[' found to initiate list at " ++ str
     , readPrim =
           do str <- get
              let prim = filter (/=' ') str
@@ -111,7 +113,7 @@ stringParseFormat
                [(num, xs)] ->
                    do put xs
                       return $ PrimDouble num
-               [] -> readBoolOrString
+               [] -> readBoolOrString prim
     }
     where mapWithDelim mb list acc =
             do let (listelem, listrest) = L.span (/= ',') list
@@ -122,6 +124,14 @@ stringParseFormat
                  _ -> do put listelem
                          parseElem <- mb
                          return $ acc ++ [parseElem]
+          readBoolOrString :: String -> FailT (State String) Prim
+          readBoolOrString prim =
+              if startswith "True" prim
+                 then do { put $ drop 4 prim; return $ PrimBool True }
+                 else if startswith "False" prim
+                 then do { put $ drop 5 prim; return $ PrimBool False }
+                 else do { put $ snd $ delimit prim; return $ PrimString $ (fst $ delimit prim) }
+              where delimit str = L.span (/=')') str
 
 startCons :: FailT (State String) String
 startCons =
@@ -146,6 +156,9 @@ readOpen =
          '(':rest ->
              do put rest
                 return ""
+         _ ->
+            fail $ "No opening parenthesis found at " ++ str ++ "."
+
 
 hasNested str = let (untilClosedPar, _) = L.span (/=')') str
                     (untilOpenPar, _) = L.span (/='(') str
@@ -160,13 +173,3 @@ readClose =
                 return ""
          _ -> fail $ "No closing parenthesis found at " ++ str ++ "."
 
-
-readBoolOrString :: FailT (State String) Prim
-readBoolOrString =
-    do str' <- get
-       let str = filter (/=' ') str'
-       if startswith "True" str
-          then do { put $ drop 4 str; return $ PrimBool True }
-          else if startswith "False" str
-          then do { put $ drop 5 str; return $ PrimBool False }
-          else do { return $ PrimString str } --- fix! delimit at ')'

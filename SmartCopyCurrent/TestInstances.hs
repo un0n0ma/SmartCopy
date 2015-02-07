@@ -48,6 +48,11 @@ data Bla = Bla deriving (Eq, Show, Generic)
 data ArrType = ArrType [Int] deriving (Eq, Show, Generic)
 data ArrTypeBar = ArrTypeBar [Bar] deriving (Eq, Show, Generic)
 data ArrTypeFooBar = ArrTypeFooBar [FooBar] deriving (Eq, Show, Generic)
+data StringTest = StringTest String deriving (Eq, Show, Generic)
+data StringTest' = StringTest' String [Int] deriving (Eq, Show, Generic)
+data BoolTest = BoolTest Bool deriving (Eq, Show, Generic)
+data BoolTest' = BoolTest' { blist :: [Bool], b :: Bool, slist :: [String] } 
+    deriving (Eq, Show, Generic)
 
 instance Json.ToJSON Some
 instance Json.ToJSON Some'
@@ -61,6 +66,12 @@ instance Json.ToJSON MyBool
 instance Json.ToJSON Bla
 instance Json.ToJSON Easy
 instance Json.ToJSON ArrType
+instance Json.ToJSON ArrTypeBar
+instance Json.ToJSON ArrTypeFooBar
+instance Json.ToJSON StringTest
+instance Json.ToJSON StringTest'
+instance Json.ToJSON BoolTest
+instance Json.ToJSON BoolTest'
 instance Json.FromJSON Some
 instance Json.FromJSON Some'
 instance Json.FromJSON Spam
@@ -73,46 +84,93 @@ instance Json.FromJSON MyBool
 instance Json.FromJSON Bla
 instance Json.FromJSON Easy
 instance Json.FromJSON ArrType
+instance Json.FromJSON ArrTypeBar
+instance Json.FromJSON StringTest
+instance Json.FromJSON StringTest'
+instance Json.FromJSON ArrTypeFooBar
+instance Json.FromJSON BoolTest
+instance Json.FromJSON BoolTest'
 
 
 ----------------------
 -- SmartCopy instances
 ----------------------
 
+instance SmartCopy BoolTest where
+    readSmart fmt =
+        readCons fmt [((C "BoolTest" (Left 1) False 0), readBool)]
+        where readBool = do b :: Bool <- readField fmt $ readSmart fmt
+                            return $ BoolTest b
+    writeSmart fmt (BoolTest b) =
+        withCons fmt (C "BoolTest" (Left 1) False 0) $ withField fmt (writeSmart fmt b)
+
+instance SmartCopy BoolTest' where
+    readSmart fmt =
+        readCons fmt [((C "BoolTest'" (Right ["blist", "b", "slist"]) False 0), readBT)]
+        where readBT = do blist <- readField fmt $ readRepetition fmt 
+                          b <- readField fmt $ readSmart fmt
+                          slist <- readField fmt $ readRepetition fmt
+                          return $ BoolTest' blist b slist
+    writeSmart fmt (BoolTest' blist b slist) =
+        withCons fmt (C "BoolTest'" (Right ["blist", "b", "slist"]) False 0) $
+            do withField fmt $ withRepetition fmt blist
+               withField fmt $ writeSmart fmt b
+               withField fmt $ withRepetition fmt slist
+
+instance SmartCopy StringTest where
+    readSmart fmt =
+        readCons fmt [((C "StringTest" (Left 1) False 0), readString)]
+        where readString = do s :: String <- readField fmt $ readSmart fmt
+                              return $ StringTest s
+    writeSmart fmt (StringTest s) =
+        withCons fmt (C "StringTest" (Left 1) False 0) $ withField fmt (writeSmart fmt s)
+
+instance SmartCopy StringTest' where
+    readSmart fmt =
+        readCons fmt [((C "StringTest'" (Left 2) False 0), readFields)]
+        where readFields = do s :: String <- readField fmt $ readSmart fmt
+                              ints <- readField fmt $ readInts
+                              return $ StringTest' s ints
+              readInts = do arr <- readRepetition fmt
+                            return arr
+    writeSmart fmt (StringTest' s ints) =
+        withCons fmt (C "StringTest'" (Left 2) False 0) writeFields
+        where writeFields = do withField fmt (writeSmart fmt s)
+                               withField fmt $ withRepetition fmt ints
+                               
+
 instance SmartCopy ArrType where
     readSmart fmt =
         readCons fmt [((C "ArrType" (Left 1) False 0), readInts)]
-        where readInt = do i :: Int <- readSmart fmt
-                           return i
-              readInts = do ints <- readField fmt $ readRepetition fmt $ readInt
+        where readInts = do ints <- readField fmt $ readRepetition fmt
                             return $ ArrType ints
 
     writeSmart fmt (ArrType ints) =
         withCons fmt (C "ArrType" (Left 1) False 0) $ withField fmt writePrimList
         where writePrimList =
-                withRepetition fmt (\i -> writePrimitive fmt $ PrimInt i) ints
+                withRepetition fmt ints
 
 instance SmartCopy ArrTypeBar where
     readSmart fmt =
         readCons fmt [((C "ArrTypeBar" (Left 1) False 0), readBars)]
-        where readBars = do bars <- readField fmt $ readRepetition fmt $ readSmart fmt
+        where readBars = do bars <- readField fmt $ readRepetition fmt
                             return $ ArrTypeBar bars
 
     writeSmart fmt (ArrTypeBar bars) =
         withCons fmt (C "ArrTypeBar" (Left 1) False 0) $ withField fmt writeBarList
         where writeBarList =
-                withRepetition fmt (\b -> writeSmart fmt b) bars
+                withRepetition fmt bars
 
 instance SmartCopy ArrTypeFooBar where
     readSmart fmt =
         readCons fmt [(C "ArrTypeFooBar" (Left 1) False 0, readFbars)]
         where readFbars =
-                  do fbars <- readField fmt $ readRepetition fmt $ readSmart fmt
+                  do fbars <- readField fmt $ readRepetition fmt
                      return $ ArrTypeFooBar fbars
     writeSmart fmt (ArrTypeFooBar fbars) =
         withCons fmt (C "ArrTypeFooBar" (Left 1) False 0) $ withField fmt writeFBList
         where writeFBList =
-                withRepetition fmt (\b -> writeSmart fmt b) fbars
+                withRepetition fmt fbars
 
 instance SmartCopy Foo where
     readSmart fmt =
@@ -286,6 +344,16 @@ some1 = Some (Spam 1) 2
 some2 :: Some'
 some2 = Some' (Spam' 1 2)
 
+string :: StringTest
+string = StringTest "Test"
+
+string' :: StringTest'
+string' = StringTest' "Test2" [1,2,3,4]
+
+booltest = BoolTest True
+
+booltest' = BoolTest' [True, False, True, True] False ["t", "e", "st!"]
+
 ---- Json Values
 
 v3 :: Json.Value
@@ -356,6 +424,10 @@ main = do args <- getArgs
                    liftIO $ print (J.serializeSmart v10)
                    liftIO $ print (J.serializeSmart v11)
                    liftIO $ print (J.serializeSmart v12)
+                   liftIO $ print (J.serializeSmart string)
+                   liftIO $ print (J.serializeSmart string')
+                   liftIO $ print (J.serializeSmart booltest)
+                   liftIO $ print (J.serializeSmart booltest')
                    putStrLn "ENCODING:"
                    liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v8))
                    liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v7))
@@ -377,6 +449,10 @@ main = do args <- getArgs
                    liftIO $ print (S.serializeSmart some1)
                    liftIO $ print (S.serializeSmart some2)
                    liftIO $ print (S.serializeSmart s6parsed)
+                   liftIO $ print (S.serializeSmart string)
+                   liftIO $ print (S.serializeSmart string')
+                   liftIO $ print (S.serializeSmart booltest)
+                   liftIO $ print (S.serializeSmart booltest')
                    putStrLn "PARSING String Values:"
                    liftIO $ print (S.parseSmart somestring1 :: Fail Some)
                    liftIO $ print (S.parseSmart somestring2 :: Fail Some')
@@ -402,6 +478,10 @@ main = do args <- getArgs
                    liftIO $ putStrLn (X.serializeSmart some1)
                    liftIO $ putStrLn (X.serializeSmart some2)
                    liftIO $ putStrLn (X.serializeSmart s6parsed)
+                   liftIO $ putStrLn (X.serializeSmart string)
+                   liftIO $ putStrLn (X.serializeSmart string')
+                   liftIO $ putStrLn (X.serializeSmart booltest)
+                   liftIO $ putStrLn (X.serializeSmart booltest')
                    putStrLn "PARSING XML:"
                    liftIO $ print (X.parseSmart xml1 :: Fail Easy)
                    liftIO $ print (X.parseSmart xml3 :: Fail Bla)

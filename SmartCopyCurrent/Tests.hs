@@ -94,6 +94,18 @@ tests_JSON
                 pResult :: Test.ArrType <- fromOk $ J.parseSmart  sResult
                 assertEqual "Serializing as JSON Value" Test.v10 pResult
         , TestCase $
+             do let sResult = J.serializeSmart  Test.v11
+                pResult :: Test.ArrTypeBar <- fromOk $ J.parseSmart  sResult
+                assertEqual "Serializing as JSON Value" Test.v11 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart  Test.v12
+                pResult :: Test.ArrTypeFooBar <- fromOk $ J.parseSmart  sResult
+                assertEqual "Serializing as JSON Value" Test.v12 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart  Test.string
+                pResult :: Test.StringTest <- fromOk $ J.parseSmart  sResult
+                assertEqual "Serializing as String'>" Test.string pResult
+        , TestCase $
              do let sResult = J.serializeSmart  Test.v8
                 pResult :: Test.FooBar <- fromOk $ J.parseSmart  sResult
                 assertEqual "Serializing as JSON Value" Test.v8 pResult
@@ -134,12 +146,44 @@ tests_JSON
                 let sResult2 = Json.toJSON Test.v1
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
+             do let sResult = J.serializeSmart  Test.booltest
+                pResult :: Test.BoolTest <- fromOk $ J.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest pResult
+        , TestCase $
+             do let sResult = J.serializeSmart  Test.booltest'
+                pResult :: Test.BoolTest' <- fromOk $ J.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest' pResult
+        , TestCase $
              do let sResult1 = J.serializeSmart  Test.v2
                 let sResult2 = Json.toJSON Test.v2
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do let sResult1 = J.serializeSmart  Test.v10
                 let sResult2 = Json.toJSON Test.v10
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.v11
+                let sResult2 = Json.toJSON Test.v11
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.v12
+                let sResult2 = Json.toJSON Test.v12
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.string
+                let sResult2 = Json.toJSON Test.string
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.string'
+                let sResult2 = Json.toJSON Test.string'
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.booltest
+                let sResult2 = Json.toJSON Test.booltest
+                assertEqual "Comparing serialized with Aeson" sResult1 sResult2
+        , TestCase $
+             do let sResult1 = J.serializeSmart  Test.booltest'
+                let sResult2 = Json.toJSON Test.booltest'
                 assertEqual "Comparing serialized with Aeson" sResult1 sResult2
         , TestCase $
              do pResult1 :: Test.MyDouble <- fromOk $ J.parseSmart  Test.v3
@@ -152,6 +196,10 @@ tests_JSON
         , TestCase $
              do pResult1 :: Test.FooBar <- fromOk $ J.parseSmart  Test.v5
                 let Json.Success pResult2 = Json.fromJSON Test.v5
+                assertEqual "Comparing parsed with Aeson" pResult1 pResult2
+        , TestCase $
+             do pResult1 :: Test.FooBar <- fromOk $ J.parseSmart  Test.v6
+                let Json.Success pResult2 = Json.fromJSON Test.v6
                 assertEqual "Comparing parsed with Aeson" pResult1 pResult2
         , TestCase $
              do pResult1 :: Test.FooBar <- fromOk $ J.parseSmart  Test.v6
@@ -173,6 +221,14 @@ tests_String
              do let sResult = S.serializeSmart  Test.v10
                 pResult :: Test.ArrType <- fromOk $ S.parseSmart  sResult
                 assertEqual "Serializing as String'>" Test.v10 pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.v11
+                pResult :: Test.ArrTypeBar <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as String'>" Test.v11 pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.v12
+                pResult :: Test.ArrTypeFooBar <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as String'>" Test.v12 pResult
         , TestCase $
              do let sResult = S.serializeSmart  Test.some2
                 pResult :: Test.Some' <- fromOk $ S.parseSmart  sResult
@@ -201,6 +257,22 @@ tests_String
              do let sResult = S.serializeSmart  Test.v9
                 pResult :: Test.Bla <- fromOk $ S.parseSmart  sResult
                 assertEqual "Serializing as String'>" Test.v9 pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.string
+                pResult :: Test.StringTest <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as String'>" Test.string pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.string'
+                pResult :: Test.StringTest' <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as String'>" Test.string' pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.booltest
+                pResult :: Test.BoolTest <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest pResult
+        , TestCase $
+             do let sResult = S.serializeSmart  Test.booltest'
+                pResult :: Test.BoolTest' <- fromOk $ S.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest' pResult
         , TestCase $
              do pResult :: Test.Easy <- fromOk $ S.parseSmart  Test.s1
                 let sResult = filter (/= ' ') $ S.serializeSmart  pResult
@@ -240,63 +312,87 @@ tests_Xml
         [ TestCase $ 
              do let sResult = X.serializeSmart  Test.v9
                 pResult :: Test.Bla <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v9 pResult
+                assertEqual "Serializing as Xml>" Test.v9 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.string
+                pResult :: Test.StringTest <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.string pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.string'
+                pResult :: Test.StringTest' <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.string' pResult
         , TestCase $
              do let sResult = X.serializeSmart  Test.v10
                 pResult :: Test.ArrType <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v10 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.some2
-                pResult :: Test.Some' <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.some2 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.v8
-                pResult :: Test.FooBar <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v8 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.v7
-                pResult :: Test.FooBar <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v7 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.v1
-                pResult :: Test.Foo <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v1 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.v2
-                pResult :: Test.Foo <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v2 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart  Test.some1
-                pResult :: Test.Some <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.some1 pResult
+                assertEqual "Serializing as Xml>" Test.v10 pResult
         , TestCase $
              do let sResult = X.serializeSmart  Test.v11
                 pResult :: Test.ArrTypeBar <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v11 pResult
+                assertEqual "Serializing as Xml>" Test.v11 pResult
         , TestCase $
              do let sResult = X.serializeSmart  Test.v12
                 pResult :: Test.ArrTypeFooBar <- fromOk $ X.parseSmart  sResult
-                assertEqual "Serializing as String'>" Test.v12 pResult
+                assertEqual "Serializing as Xml>" Test.v12 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.some2
+                pResult :: Test.Some' <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.some2 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v8
+                pResult :: Test.FooBar <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v8 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v7
+                pResult :: Test.FooBar <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v7 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v1
+                pResult :: Test.Foo <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v1 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v2
+                pResult :: Test.Foo <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v2 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.some1
+                pResult :: Test.Some <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.some1 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v11
+                pResult :: Test.ArrTypeBar <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v11 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.v12
+                pResult :: Test.ArrTypeFooBar <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.v12 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.booltest
+                pResult :: Test.BoolTest <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest pResult
+        , TestCase $
+             do let sResult = X.serializeSmart  Test.booltest'
+                pResult :: Test.BoolTest' <- fromOk $ X.parseSmart  sResult
+                assertEqual "Serializing as Xml>" Test.booltest' pResult
         , TestCase $
              do pResult :: Test.Easy <- fromOk $ X.parseSmart  Test.xml1
                 let sResult = filter (/= ' ') $ X.serializeSmart  pResult
-                assertEqual "Parsing String" (filter (/= ' ') Test.xml1) sResult
+                assertEqual "Parsing Xml" (filter (/= ' ') Test.xml1) sResult
         , TestCase $
              do pResult :: Test.FooBar <- fromOk $ X.parseSmart  Test.xml2
                 let sResult = filter (/= ' ') $ X.serializeSmart  pResult
-                assertEqual "Parsing String" (filter (/= ' ') Test.xml2) sResult
+                assertEqual "Parsing Xml" (filter (/= ' ') Test.xml2) sResult
         , TestCase $
              do pResult :: Test.Bla <- fromOk $ X.parseSmart  Test.xml3
                 let sResult = filter (/= ' ') $ X.serializeSmart  pResult
-                assertEqual "Parsing String" (filter (/= ' ') Test.xml3) sResult
+                assertEqual "Parsing Xml" (filter (/= ' ') Test.xml3) sResult
         , TestCase $
              do pResult :: Test.Some <- fromOk $ X.parseSmart  Test.xml4
                 let sResult = filter (/= ' ') $ X.serializeSmart  pResult
-                assertEqual "Parsing String" (filter (/= ' ') Test.xml4) sResult
+                assertEqual "Parsing Xml" (filter (/= ' ') Test.xml4) sResult
         , TestCase $
              do pResult :: Test.Some' <- fromOk $ X.parseSmart  Test.xml5
                 let sResult = filter (/= ' ') $ X.serializeSmart  pResult
-                assertEqual "Parsing String" (filter (/= ' ') Test.xml5) sResult
+                assertEqual "Parsing Xml" (filter (/= ' ') Test.xml5) sResult
         ]
 
 

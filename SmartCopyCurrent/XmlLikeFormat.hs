@@ -65,11 +65,11 @@ xmlLikeSerializationFormat
                           tell $ closeTag field
                    [] -> m
     , withRepetition =
-          \wf list ->
+          \list ->
               forM_ (zip list (repeat "value")) $
               \el ->
                   do tell $ openTag $ snd el
-                     wf $ fst el
+                     writeSmart xmlLikeSerializationFormat $ fst el
                      tell $ closeTag $ snd el
     , writePrimitive =
           \prim ->
@@ -123,9 +123,11 @@ xmlLikeParseFormat
                           lift $ lift $ put xs
                           return res
     , readRepetition =
-          \ma ->
-              do whileJust enterElemMaybe $
-                           \_ -> do { res <- ma; _ <- readCloseWith "value"; return res }
+          do whileJust enterElemMaybe $
+                 \_ ->
+                     do res <- readSmart xmlLikeParseFormat
+                        _ <- readCloseWith "value"
+                        return res
     , readPrim =
           do str' <- get
              let str = filter (/=' ') str'
@@ -144,7 +146,9 @@ xmlLikeParseFormat
                                do lift $ put $ drop 5 str
                                   return $ PrimBool False
                           _ ->
-                            do return $ PrimString str --- FIX
+                            do lift $ put $ snd $ delimit str
+                               return $ PrimString $ fst $ delimit str
+                            where delimit str = L.span (/='<') str
     }
 
 openTag s = "<" ++ s ++ ">"
