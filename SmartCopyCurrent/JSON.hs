@@ -55,17 +55,20 @@ jsonSerializationFormat
           \cons ma ->
           if ctagged cons
              then case cfields cons of
-                    Left 0 ->
+                    Empty ->
+                      lift $ put $ Json.String $ cname cons
+                        
+                    NF 0 ->
                       lift $ put $ Json.object [("tag", Json.String $ cname cons),
                                          ("contents", Json.Array V.empty)]
-                    Left n ->
+                    NF i ->
                       do put $ Left $ Json.Array V.empty
                          _ <- ma
                          Left res <- get
                          let resObj = Json.object [("tag", Json.String $ cname cons),
                                                    ("contents", arConcat res)]
                          lift $ put resObj
-                    Right ls ->
+                    LF ls ->
                       do put $ Right $ zip ls (repeat Json.Null)
                          _ <- ma
                          Right res <- get
@@ -73,19 +76,18 @@ jsonSerializationFormat
                               = Json.object $ ("tag", Json.String $ cname cons):res
                          lift $ put resObj
              else case cfields cons of
-                   Left 0 ->
-                     lift $ put $ Json.String $ cname cons
-                   Left n ->
-                     do put $ Left $ Json.Array V.empty
-                        _ <- ma
-                        Left res <- get
-                        lift $ put $ arConcat res
-                   Right ls ->
+                   LF ls ->
                      do let fields = zip ls (repeat Json.Null)
                         put $ Right fields
                         _ <- ma
                         Right res <- get
                         lift $ put $ Json.object res
+                   _ ->
+                     do put $ Left $ Json.Array V.empty
+                        _ <- ma
+                        Left res <- get
+                        lift $ put $ arConcat res
+
     , withField =
           \ma ->
               do fields <- get
@@ -103,27 +105,27 @@ jsonSerializationFormat
 
     , withRepetition =
           \ar ->
-            case length ar of
-              0 -> return ()
-              n -> do accArray [] ar (writeSmart jsonSerializationFormat)
-                      ar <- lift get
-                      lift $ put $ arConcat ar
+              case length ar of
+                0 -> return ()
+                n -> do accArray [] ar (writeSmart jsonSerializationFormat)
+                        ar <- lift get
+                        lift $ put $ arConcat ar
 
     , writePrimitive =
           \prim ->
-            case prim of
-              PrimInt i ->
-                  do lift $ put $ Json.Number $ fromIntegral i
-                     return ()
-              PrimBool b ->
-                  do lift $ put $ Json.Bool b
-                     return ()
-              PrimString s ->
-                  do lift $ put $ Json.String $ T.pack s
-                     return ()
-              PrimDouble d ->
-                  do lift $ put $ Json.Number $ fromFloatDigits d
-                     return ()
+              case prim of
+                PrimInt i ->
+                    do lift $ put $ Json.Number $ fromIntegral i
+                       return ()
+                PrimBool b ->
+                    do lift $ put $ Json.Bool b
+                       return ()
+                PrimString s ->
+                    do lift $ put $ Json.String $ T.pack s
+                       return ()
+                PrimDouble d ->
+                    do lift $ put $ Json.Number $ fromFloatDigits d
+                       return ()
     }
     where accArray xs [] wf = return ()
           accArray xs ar wf =
@@ -177,10 +179,10 @@ jsonParseFormat
                                local (const ar) (head parsers)
                         otherPrim ->
                             case cfields $ fst $ head cons of
-                              Left 0 ->
+                              NF 0 ->
                                   do let parser = snd $ head cons
                                      local (const otherPrim) parser
-                              Left 1 ->
+                              NF 1 ->
                                   do let parser = snd $ head cons
                                      local (const otherPrim) parser
                               _      -> fail "Parsing failure. Was expecting\ 
@@ -258,7 +260,7 @@ jsonParseFormat
         do x <- ask
            case x of
              Json.Number n ->
-                  return $ PrimDouble $ realToFrac n
+                  return $ PrimDouble $ realToFrac n -- Fix!
              Json.Bool b -> return $ PrimBool b
              Json.String s -> return $ PrimString $ T.unpack s
              ar@(Json.Array _) ->
@@ -276,8 +278,8 @@ jsonParseFormat
                      Just cf = lookup con (zip conNames conFields)
                      fields
                          = case cf of
-                             Left i -> map show [0..i-1]
-                             Right lbs -> map T.unpack lbs
+                             NF i -> map show [0..i-1]
+                             LF lbs -> map T.unpack lbs
                  put fields
                  return $ T.unpack ""
           putFieldsFromArr ar =

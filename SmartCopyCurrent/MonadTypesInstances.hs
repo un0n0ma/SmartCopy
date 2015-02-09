@@ -50,6 +50,11 @@ instance (Applicative m, Monad m) => Applicative (FailT m) where
                          m' <- runFailT m
                          return $ f' <*> m'
 
+instance Alternative Fail where
+    empty = Fail "mzero"
+    (<|>) a@(Ok _) _ = a
+    (<|>) _ a = a
+
 instance Functor m => Functor (FailT m) where
     fmap f = FailT . fmap (fmap f) . runFailT
 
@@ -78,6 +83,14 @@ instance MonadTrans FailT where
     lift ma =
         FailT $ do a <- ma
                    return $ Ok a
+
+instance (Applicative m, Monad m) => Alternative (FailT m) where
+    empty = FailT (return $ Fail "mzero")
+    ma <|> mb = FailT $
+                do a <- runFailT ma
+                   case a of
+                     ok@(Ok _) -> return ok
+                     _ -> runFailT mb
 
 instance Monad Fail where
     return = Ok

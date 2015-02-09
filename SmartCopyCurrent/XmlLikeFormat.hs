@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -41,11 +42,11 @@ xmlLikeSerializationFormat
              tell $ openTag conName
              let fields
                     = case cfields cons of
-                        Left 0 ->
+                        NF 0 ->
                             []
-                        Left i ->
+                        NF i ->
                             map show [0..i-1]
-                        Right ls ->
+                        LF ls ->
                             map T.unpack ls
              put fields
              m
@@ -99,8 +100,8 @@ xmlLikeParseFormat
                                  do let Just cfields = lookup con (zip conNames conFields)
                                         fields
                                             = case cfields of
-                                                Left i -> map show [0..i-1]
-                                                Right lbs -> map T.unpack lbs
+                                                NF i -> map show [0..i-1]
+                                                LF lbs -> map T.unpack lbs
                                     lift $ lift $ put fields
                                     rest <- get
                                     res <- parser
@@ -168,7 +169,7 @@ readOpen =
                   put after
                   return tag
           else fail $ "Didn't find an opening tag at " ++ str ++ "."
-    where isTagOpen s = startswith "<" s && not $ startswith "</" s
+    where isTagOpen s = startswith "<" s && (not $ startswith "</" s)
                  
 readClose :: FailT (StateT String (State [String])) String
 readClose =
