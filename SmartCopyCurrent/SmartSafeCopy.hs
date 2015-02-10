@@ -9,7 +9,6 @@ import SmartCopy
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
-import qualified Data.SafeCopy as Safe
 import qualified Data.Serialize as S
 
 import Data.Bits
@@ -31,15 +30,15 @@ import Control.Monad.Reader
 import Data.Maybe
 
 
-serializeSmart a = runPut (writeSmart safeCopySerializationFormat a)
+serializeSmart a = runPut $ smartPut safeCopySerializationFormat a
 
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
-parseSmart = runGet (readSmart safeCopyParseFormat)
+parseSmart = runGet $ smartGet safeCopyParseFormat
 
 safeCopySerializationFormat :: SerializationFormat PutM
 safeCopySerializationFormat
     = SerializationFormat
-    { withVersion = undefined
+    { writeVersion = S.put . unVersion
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -52,7 +51,7 @@ safeCopySerializationFormat
           \prim ->
               case prim of
                 PrimInt i ->
-                    putWord64be (fromIntegral i :: Word64)
+                    putWord64be (fromIntegral i)
                 PrimInteger i ->
                     S.put i
                 PrimString s ->
@@ -63,9 +62,62 @@ safeCopySerializationFormat
                     S.put (decodeFloat d)
                 PrimChar c ->
                     S.put c
+    , writeMaybe =
+          \m ->
+              case m of
+                Just a ->
+                    S.put True >> write a
+                Nothing ->
+                    S.put False
     }
     where write c = writeSmart safeCopySerializationFormat c
     
 safeCopyParseFormat :: ParseFormat Get
 safeCopyParseFormat
-    = undefined
+    = ParseFormat
+    { readVersion = liftM Version S.get
+    , readCons =
+        \cons ->
+          case length cons of
+            0 -> noCons
+            1 ->
+              if ctagged $ fst $ head cons
+                 then fail $
+                      "Expecting a sumtype, but there is only one constructor for look-up: "
+                      ++ show (cname $ fst $ head cons)
+                 else snd $ head cons
+            n ->
+              if ctagged $ fst $ head cons
+                 then do
+                        c <- getWord8
+                        let conInds = map (fromIntegral . cindex . fst) cons
+                            parsers = map snd cons
+                        fromMaybe (fail $ "Didn't find constructor with index "
+                                        ++ show c ++ ".")
+                                  (lookup c (zip conInds parsers))
+                 else fail $
+                      "Got more than one constructor for a non-tagged type: " ++
+                      show (map (cname .fst) cons)
+    , readField = id
+    , readRepetition =
+          getListOf $ readSmart safeCopyParseFormat
+    , readInt =
+          do prim <- S.getWord64be
+             return $ PrimInt $ fromIntegral prim
+    , readChar =
+          do prim <- S.get
+             return $ PrimChar prim
+    , readBool =
+          do prim <- S.getWord8
+             return $ PrimBool $ toEnum $ fromIntegral prim
+    , readDouble =
+          do prim <- S.get
+             return $ PrimDouble prim
+    , readString =
+          do prim <- S.getListOf (S.get :: Get Char)
+             return $ PrimString prim
+    , readMaybe =
+          do b <- S.get
+             if b then liftM Just $ readSmart safeCopyParseFormat
+                  else return Nothing
+    }

@@ -110,8 +110,27 @@ instance B.Serialize StringTest
 instance B.Serialize StringTest'
 instance B.Serialize BoolTest
 instance B.Serialize BoolTest'
+instance B.Serialize Easy
 
 instance SC.SafeCopy Bla
+instance SC.SafeCopy MyBool
+instance SC.SafeCopy Spam
+instance SC.SafeCopy Spam'
+instance SC.SafeCopy Some
+instance SC.SafeCopy Some'
+instance SC.SafeCopy Bar
+instance SC.SafeCopy Foo
+instance SC.SafeCopy FooBar
+instance SC.SafeCopy ArrType
+instance SC.SafeCopy ArrTypeBar
+instance SC.SafeCopy ArrTypeFooBar
+instance SC.SafeCopy MyDouble
+instance SC.SafeCopy StringTest
+instance SC.SafeCopy StringTest'
+instance SC.SafeCopy BoolTest
+instance SC.SafeCopy BoolTest'
+instance SC.SafeCopy Easy
+
 
 ----------------------
 -- SmartCopy instances
@@ -122,7 +141,7 @@ instance SmartCopy BoolTest where
         readCons fmt [(C "BoolTest" (NF 1) False 0 , readBool)]
         where readBool = do b :: Bool <- readField fmt $ readSmart fmt
                             return $ BoolTest b
-    writeSmart fmt (BoolTest b) =
+    writeSmart fmt x@(BoolTest b) =
         withCons fmt (C "BoolTest" (NF 1) False 0) $ withField fmt (writeSmart fmt b)
 
 instance SmartCopy BoolTest' where
@@ -132,7 +151,7 @@ instance SmartCopy BoolTest' where
                           b <- readField fmt $ readSmart fmt
                           slist <- readField fmt $ readRepetition fmt
                           return $ BoolTest' blist b slist
-    writeSmart fmt (BoolTest' blist b slist) =
+    writeSmart fmt x@(BoolTest' blist b slist) =
         withCons fmt (C "BoolTest'" (LF ["blist", "b", "slist"]) False 0) $
             do withField fmt $ withRepetition fmt blist
                withField fmt $ writeSmart fmt b
@@ -143,7 +162,7 @@ instance SmartCopy StringTest where
         readCons fmt [(C "StringTest" (NF 1) False 0, readString)]
         where readString = do s :: String <- readField fmt $ readSmart fmt
                               return $ StringTest s
-    writeSmart fmt (StringTest s) =
+    writeSmart fmt x@(StringTest s) =
         withCons fmt (C "StringTest" (NF 1) False 0) $ withField fmt (writeSmart fmt s)
 
 instance SmartCopy StringTest' where
@@ -152,7 +171,7 @@ instance SmartCopy StringTest' where
         where readFields = do s :: String <- readField fmt $ readSmart fmt
                               ints <- readField fmt $ readRepetition fmt
                               return $ StringTest' s ints
-    writeSmart fmt (StringTest' s ints) =
+    writeSmart fmt x@(StringTest' s ints) =
         withCons fmt (C "StringTest'" (NF 2) False 0) writeFields
         where writeFields = do withField fmt (writeSmart fmt s)
                                withField fmt $ withRepetition fmt ints
@@ -164,7 +183,7 @@ instance SmartCopy ArrType where
         where readInts = do ints <- readField fmt $ readRepetition fmt
                             return $ ArrType ints
 
-    writeSmart fmt (ArrType ints) =
+    writeSmart fmt x@(ArrType ints) =
         withCons fmt (C "ArrType" (NF 1) False 0) $ withField fmt writePrimList
         where writePrimList =
                 withRepetition fmt ints
@@ -175,7 +194,7 @@ instance SmartCopy ArrTypeBar where
         where readBars = do bars <- readField fmt $ readRepetition fmt
                             return $ ArrTypeBar bars
 
-    writeSmart fmt (ArrTypeBar bars) =
+    writeSmart fmt x@(ArrTypeBar bars) =
         withCons fmt (C "ArrTypeBar" (NF 1) False 0) $ withField fmt writeBarList
         where writeBarList =
                 withRepetition fmt bars
@@ -186,7 +205,7 @@ instance SmartCopy ArrTypeFooBar where
         where readFbars =
                   do fbars <- readField fmt $ readRepetition fmt
                      return $ ArrTypeFooBar fbars
-    writeSmart fmt (ArrTypeFooBar fbars) =
+    writeSmart fmt x@(ArrTypeFooBar fbars) =
         withCons fmt (C "ArrTypeFooBar" (NF 1) False 0) $ withField fmt writeFBList
         where writeFBList =
                 withRepetition fmt fbars
@@ -199,7 +218,7 @@ instance SmartCopy Foo where
                     bar <- readField fmt $ readSmart fmt
                     return $ Foo int bar
 
-    writeSmart fmt (Foo i bar) =
+    writeSmart fmt x@(Foo i bar) =
         withCons fmt (C "Foo" (NF 2) False 0) writeFields
         where writeFields = do withField fmt (writePrimitive fmt $ PrimInt i)
                                withField fmt (writeSmart fmt bar)
@@ -218,12 +237,12 @@ instance SmartCopy FooBar where
                   foobar <- readField fmt $ readSmart fmt
                   return $ Bar0 val foobar
 
-    writeSmart fmt (Foo0 bool double) =
+    writeSmart fmt x@(Foo0 bool double) =
         withCons fmt (C "Foo0" (NF 2) True 0) writeFields
         where writeFields =
                 do withField fmt (writeSmart fmt bool)
                    withField fmt (writeSmart fmt double)
-    writeSmart fmt (Bar0 int foobar) =
+    writeSmart fmt x@(Bar0 int foobar) =
         withCons fmt (C "Bar0" (LF ["value", "foobar"]) True 1) writeFields
         where writeFields =
                 do withField fmt (writeSmart fmt int)
@@ -234,7 +253,7 @@ instance SmartCopy MyDouble where
         readCons fmt [(C "MyDouble" (NF 1) False 0, readMyDouble)]
         where readMyDouble = do d <- readField fmt $ readSmart fmt
                                 return $ MyDouble d
-    writeSmart fmt (MyDouble d) =
+    writeSmart fmt x@(MyDouble d) =
         withCons fmt (C "MyDouble" (NF 1) False 0) $ withField fmt $
                                                      writeSmart fmt d
 
@@ -253,21 +272,20 @@ instance SmartCopy Easy where
           readEasy =
               do f <- readField fmt $ readSmart fmt
                  return $ Easy f
-    writeSmart fmt (Easy a) =
+    writeSmart fmt x@(Easy a) =
         withCons fmt (C "Easy" (NF 1) False 0) $ withField fmt $
-                                                   writePrimitive fmt (PrimInt a)
+        writeSmart fmt a
 
 instance SmartCopy Bla where
     readSmart fmt =
         readCons fmt [(C "Bla" Empty False 0, return Bla)]
-    writeSmart fmt Bla =
-        withVersion fmt (version :: Version Bla) $
+    writeSmart fmt bla =
         withCons fmt (C "Bla" Empty False 0) (return ())
 
 instance SmartCopy Bar where
     writeSmart fmt (BarLeft) =
         withCons fmt (C "BarLeft" (NF 0) True 0) (return ())
-    writeSmart fmt (BarRight foo) =
+    writeSmart fmt x@(BarRight foo) =
         withCons fmt (C "BarRight" (NF 1) True 1) $
             withField fmt $ writeSmart fmt foo
     readSmart fmt =
@@ -279,7 +297,7 @@ instance SmartCopy Bar where
 
 
 instance SmartCopy Some' where
-    writeSmart fmt (Some' spam') =
+    writeSmart fmt x@(Some' spam') =
         withCons fmt (C "Some'" (NF 1) False 0) $ withField fmt (writeSmart fmt spam')
     readSmart fmt =
         readCons fmt [(C "Some'" (NF 1) False 0, readSome')]
@@ -287,7 +305,7 @@ instance SmartCopy Some' where
                              return $ Some' spam
 
 instance SmartCopy Some where
-    writeSmart fmt (Some spam int) =
+    writeSmart fmt x@(Some spam int) =
         withCons fmt (C "Some" (NF 2) False 0) fields
            where fields = do withField fmt (writeSmart fmt spam)
                              withField fmt (writeSmart fmt int)
@@ -299,7 +317,7 @@ instance SmartCopy Some where
 
                              
 instance SmartCopy Spam where
-    writeSmart fmt (Spam int) =
+    writeSmart fmt x@(Spam int) =
         withCons fmt (C "Spam" (NF 1) False 0) $ withField fmt $
                          writeSmart fmt int
     readSmart fmt =
@@ -309,7 +327,7 @@ instance SmartCopy Spam where
                    return $ Spam i
 
 instance SmartCopy Spam' where
-    writeSmart fmt (Spam' int1 int2) =
+    writeSmart fmt x@(Spam' int1 int2) =
         withCons fmt (C "Spam'" (NF 2) False 0) writeFields
         where writeFields = 
                do withField fmt (writeSmart fmt int1)
@@ -338,23 +356,23 @@ v1 = Foo 2 BarLeft
 v2 :: Foo
 v2 = Foo 42 (BarRight (Foo 41 BarLeft))
 
-v7 :: FooBar
-v7 = Foo0 MyTrue (MyDouble 42.0) 
+v3 :: FooBar
+v3 = Foo0 MyTrue (MyDouble 42.0) 
 
-v8 :: FooBar
-v8 = Bar0 23 v7
+v4 :: FooBar
+v4 = Bar0 23 v3
 
-v9 :: Bla
-v9 = Bla
+v5 :: Bla
+v5 = Bla
 
-v10 :: ArrType
-v10 = ArrType [1,2,3,4]
+v6 :: ArrType
+v6 = ArrType [1,2,3,4]
 
-v11 :: ArrTypeBar
-v11 = ArrTypeBar [BarRight v1, BarLeft]
+v7 :: ArrTypeBar
+v7 = ArrTypeBar [BarRight v1, BarLeft]
 
-v12 :: ArrTypeFooBar
-v12 = ArrTypeFooBar [v7, v8]
+v8 :: ArrTypeFooBar
+v8 = ArrTypeFooBar [v3, v4]
 
 some1 :: Some
 some1 = Some (Spam 1) 2
@@ -374,23 +392,23 @@ booltest' = BoolTest' [True, False, True, True] False ["t", "e", "st!"]
 
 ---- Json Values
 
-v3 :: Json.Value
-v3 = Json.Number 3
+js1 :: Json.Value
+js1 = Json.Number 3
 
-v4 :: Json.Value
-v4 = Json.Number 2.3
+js2 :: Json.Value
+js2 = Json.Number 2.3
 
-v5 :: Json.Value
-v5 = Json.Object $ M.fromList
+js3 :: Json.Value
+js3 = Json.Object $ M.fromList
                    [ ("tag", Json.String "Foo0")
                    , ("contents", Json.Array $ V.fromList
                    [Json.String "MyTrue", Json.Number 43])]
 
-v6 :: Json.Value
-v6 = Json.Object $ M.fromList
+js4 :: Json.Value
+js4 = Json.Object $ M.fromList
                    [ ("tag", Json.String "Bar0")
                    , ("value", Json.Number 2)
-                   , ("foobar", v5)
+                   , ("foobar", js3)
                    ]
 
 ---- Strings
@@ -427,44 +445,44 @@ main = do args <- getArgs
           case args of
             "json":_ ->
                 do putStrLn "PARSING JSON Values:"
-                   liftIO $ print (J.parseSmart v3 :: Fail Easy)
-                   liftIO $ print (J.parseSmart v5 :: Fail FooBar)
-                   liftIO $ print (J.parseSmart v6 :: Fail FooBar)
+                   liftIO $ print (J.parseSmart js1 :: Fail Easy)
+                   liftIO $ print (J.parseSmart js2 :: Fail FooBar)
+                   liftIO $ print (J.parseSmart js3 :: Fail FooBar)
                    putStrLn "DATATYPES as JSON Values:"
-                   liftIO $ print (J.serializeSmart v7)
+                   liftIO $ print (J.serializeSmart v3)
                    liftIO $ print (J.serializeSmart (MyDouble 23))
                    liftIO $ print (J.serializeSmart (Easy 42))
                    liftIO $ print (J.serializeSmart some1)
                    liftIO $ print (J.serializeSmart some2)                   
                    liftIO $ print (J.serializeSmart v1)
                    liftIO $ print (J.serializeSmart v2)
+                   liftIO $ print (J.serializeSmart v4)
+                   liftIO $ print (J.serializeSmart v6)
+                   liftIO $ print (J.serializeSmart v7)
                    liftIO $ print (J.serializeSmart v8)
-                   liftIO $ print (J.serializeSmart v10)
-                   liftIO $ print (J.serializeSmart v11)
-                   liftIO $ print (J.serializeSmart v12)
                    liftIO $ print (J.serializeSmart string)
                    liftIO $ print (J.serializeSmart string')
                    liftIO $ print (J.serializeSmart booltest)
                    liftIO $ print (J.serializeSmart booltest')
                    liftIO $ print (J.serializeSmart bar)
                    putStrLn "ENCODING:"
-                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v8))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v4))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v3))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v5))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v6))
                    liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v7))
-                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v9))
-                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v10))
-                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v11))
-                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v12))
+                   liftIO $ BSL.putStrLn (J.encode (J.serializeSmart v8))
             "string":_ ->
                 do putStrLn "DATATYPES as String Values:"
-                   liftIO $ print (S.serializeSmart v8)
+                   liftIO $ print (S.serializeSmart v4)
                    liftIO $ print (S.serializeSmart (Easy 42))
                    liftIO $ print (S.serializeSmart v2)
                    liftIO $ print (S.serializeSmart (MyDouble 23))
                    liftIO $ print (S.serializeSmart v1)
+                   liftIO $ print (S.serializeSmart v3)
+                   liftIO $ print (S.serializeSmart v6)
                    liftIO $ print (S.serializeSmart v7)
-                   liftIO $ print (S.serializeSmart v10)
-                   liftIO $ print (S.serializeSmart v11)
-                   liftIO $ print (S.serializeSmart v12)
+                   liftIO $ print (S.serializeSmart v8)
                    liftIO $ print (S.serializeSmart some1)
                    liftIO $ print (S.serializeSmart some2)
                    liftIO $ print (S.serializeSmart s6parsed)
@@ -484,16 +502,16 @@ main = do args <- getArgs
                    liftIO $ print (S.parseSmart s7 :: Fail ArrTypeFooBar)
             "xml":_ ->
                 do putStrLn "DATATYPES xml-encoded:"
-                   liftIO $ putStrLn (X.serializeSmart v9)
+                   liftIO $ putStrLn (X.serializeSmart v5)
                    liftIO $ putStrLn (X.serializeSmart v2)
                    liftIO $ putStrLn (X.serializeSmart (MyDouble 23))
                    liftIO $ putStrLn (X.serializeSmart (Easy 42))
                    liftIO $ putStrLn (X.serializeSmart v1)
+                   liftIO $ putStrLn (X.serializeSmart v3)
+                   liftIO $ putStrLn (X.serializeSmart v4)
+                   liftIO $ putStrLn (X.serializeSmart v6)
                    liftIO $ putStrLn (X.serializeSmart v7)
                    liftIO $ putStrLn (X.serializeSmart v8)
-                   liftIO $ putStrLn (X.serializeSmart v10)
-                   liftIO $ putStrLn (X.serializeSmart v11)
-                   liftIO $ putStrLn (X.serializeSmart v12)
                    liftIO $ putStrLn (X.serializeSmart some1)
                    liftIO $ putStrLn (X.serializeSmart some2)
                    liftIO $ putStrLn (X.serializeSmart s6parsed)
@@ -508,8 +526,7 @@ main = do args <- getArgs
                    liftIO $ print (X.parseSmart xml2 :: Fail FooBar)
                    liftIO $ print (X.parseSmart xml5 :: Fail Some')
             _  ->
-                putStrLn $ "You need to specify a format to display tested examplesin.\
-                           \ Valid formats at this moment are: " ++ show fmtList
+                putStrLn $ "You need to specify a format out of " ++ show fmtList
                              
                 
 

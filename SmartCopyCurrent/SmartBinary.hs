@@ -40,7 +40,7 @@ parseSmart = runGet (readSmart binaryParseFormat)
 binarySerializationFormat :: SerializationFormat PutM
 binarySerializationFormat
     = SerializationFormat
-    { withVersion = const id
+    { writeVersion = undefined
     , withCons =
           \cons ma ->
           if ctagged cons

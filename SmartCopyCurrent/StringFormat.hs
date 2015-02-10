@@ -35,7 +35,7 @@ parseSmart = runParser (readSmart stringParseFormat)
 stringSerializationFormat :: SerializationFormat (Writer String)
 stringSerializationFormat
     = SerializationFormat
-    { withVersion = const id
+    { writeVersion = undefined
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }

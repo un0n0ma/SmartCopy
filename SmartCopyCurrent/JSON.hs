@@ -51,14 +51,13 @@ parseSmart = runParser (readSmart jsonParseFormat)
 jsonSerializationFormat :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 jsonSerializationFormat
     = SerializationFormat
-    { withVersion = const id
+    { writeVersion = writeSmart jsonSerializationFormat . unVersion
     , withCons =
           \cons ma ->
           if ctagged cons
              then case cfields cons of
                     Empty ->
                       lift $ put $ Json.String $ cname cons
-                        
                     NF 0 ->
                       lift $ put $ Json.object [("tag", Json.String $ cname cons),
                                          ("contents", Json.Array V.empty)]

@@ -36,7 +36,7 @@ parseSmart = runParser (readSmart xmlLikeParseFormat)
 xmlLikeSerializationFormat :: SerializationFormat (StateT [String] (Writer String))
 xmlLikeSerializationFormat
     = SerializationFormat
-    { withVersion = const id
+    { writeVersion = undefined
     , withCons =
           \cons m ->
           do let conName = T.unpack $ cname cons
