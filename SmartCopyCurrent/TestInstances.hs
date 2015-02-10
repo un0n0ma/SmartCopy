@@ -21,6 +21,7 @@ import SmartCopy
 import qualified Data.Aeson as Json
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.HashMap.Strict as M
+import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as B
 import qualified Data.Vector as V
 
@@ -110,6 +111,7 @@ instance B.Serialize StringTest'
 instance B.Serialize BoolTest
 instance B.Serialize BoolTest'
 
+instance SC.SafeCopy Bla
 
 ----------------------
 -- SmartCopy instances
@@ -117,7 +119,7 @@ instance B.Serialize BoolTest'
 
 instance SmartCopy BoolTest where
     readSmart fmt =
-        readCons fmt [(C "BoolTest" (NF 1) False 0, readBool)]
+        readCons fmt [(C "BoolTest" (NF 1) False 0 , readBool)]
         where readBool = do b :: Bool <- readField fmt $ readSmart fmt
                             return $ BoolTest b
     writeSmart fmt (BoolTest b) =
@@ -234,7 +236,7 @@ instance SmartCopy MyDouble where
                                 return $ MyDouble d
     writeSmart fmt (MyDouble d) =
         withCons fmt (C "MyDouble" (NF 1) False 0) $ withField fmt $
-                                                       writeSmart fmt d
+                                                     writeSmart fmt d
 
 instance SmartCopy MyBool where
     readSmart fmt =
@@ -259,6 +261,7 @@ instance SmartCopy Bla where
     readSmart fmt =
         readCons fmt [(C "Bla" Empty False 0, return Bla)]
     writeSmart fmt Bla =
+        withVersion fmt (version :: Version Bla) $
         withCons fmt (C "Bla" Empty False 0) (return ())
 
 instance SmartCopy Bar where

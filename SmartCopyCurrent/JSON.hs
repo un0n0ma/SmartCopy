@@ -51,7 +51,8 @@ parseSmart = runParser (readSmart jsonParseFormat)
 jsonSerializationFormat :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 jsonSerializationFormat
     = SerializationFormat
-    { withCons =
+    { withVersion = const id
+    , withCons =
           \cons ma ->
           if ctagged cons
              then case cfields cons of

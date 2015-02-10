@@ -40,7 +40,8 @@ parseSmart = runGet (readSmart binaryParseFormat)
 binarySerializationFormat :: SerializationFormat PutM
 binarySerializationFormat
     = SerializationFormat
-    { withCons =
+    { withVersion = const id
+    , withCons =
           \cons ma ->
           if ctagged cons
              then do putWord8 (fromIntegral $ cindex cons)

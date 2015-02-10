@@ -12,6 +12,7 @@ import SmartCopy
 
 import qualified JSON as J
 import qualified SmartBinary as SB
+import qualified SmartSafeCopy as SMC
 import qualified StringFormat as S
 import qualified XmlLikeFormat as X
 import qualified TestInstances as Test
@@ -25,6 +26,7 @@ import Test.HUnit
 import Test.QuickCheck
 
 import qualified Data.HashMap as M
+import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as B
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -527,8 +529,17 @@ tests_Binary
         ]
         where msg a = "Failure: " ++ a
 
+tests_SafeCopy
+      = TestList $
+        [ TestCase $ 
+             do let sResult1 = SMC.serializeSmart Test.v9
+                    sResult2 = B.runPut $ SC.safePut Test.v9
+                assertEqual "Comparing serialized binary with Data.Serialized" sResult1 sResult2
+        ]
+
 
 main = do runTestTT tests_JSON
           runTestTT tests_String
           runTestTT tests_Xml
           runTestTT tests_Binary
+          runTestTT tests_SafeCopy

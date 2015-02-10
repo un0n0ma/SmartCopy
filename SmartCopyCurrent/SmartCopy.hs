@@ -16,6 +16,9 @@ import MonadTypesInstances
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import qualified Data.SafeCopy as SC
+
+import Data.Int
 import Data.Text.Internal as T
 
 -------------------------------------------------------------------------------
@@ -30,7 +33,10 @@ import "mtl" Control.Monad.Writer
 
 
 class SmartCopy a where
---    version :: Version a
+    version :: Version a
+    version = Version 0
+    kind :: Kind a
+    kind = Base
     writeSmart :: (SmartCopy a, Monad m) => SerializationFormat m -> a -> m ()
     readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat m -> m a
 
@@ -113,7 +119,8 @@ instance (SmartCopy a, SmartCopy b) => SmartCopy (a, b) where
 
 data SerializationFormat m
     = SerializationFormat
-    { withCons :: Cons -> m () -> m ()
+    { withVersion :: forall a. Version a -> m () -> m ()
+    , withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
     , withRepetition :: SmartCopy a => [a] -> m ()
     , writePrimitive :: Prim -> m ()
@@ -141,6 +148,7 @@ mismatch exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
 
 noCons :: Monad m => forall a. m a
 noCons = fail "No constructor found during look-up."
+
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
@@ -167,4 +175,15 @@ data Prim = PrimInt Int
           | PrimDouble Double
           deriving (Show, Read)
 
+
+-------------------------------------------------------------------------------
+-- Utility functions and types from SafeCopy
+-------------------------------------------------------------------------------
+
+newtype Version a = Version { unVersion :: Int32 }
+
+data Kind a where
+    Primitive :: Kind a
+    Base :: Kind a
+-- ... Extends..
 
