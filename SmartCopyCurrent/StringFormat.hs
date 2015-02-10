@@ -58,7 +58,7 @@ stringSerializationFormat
                 PrimDouble d -> tell $ show d
                 PrimString s -> tell s
                 PrimBool b   -> tell $ show b
-                f            -> fail $ "Was expecting primitive value but got " ++ show f
+                f            -> mismatch "primitive value" (show f)
     }
     where wrapM m = do { tell " ("; m; tell ") " }
 
@@ -73,7 +73,7 @@ stringParseFormat
                 let conNames = map (cname . fst) cons
                     parsers = map snd cons
                 case length cons of
-                  0 -> fail "Parsing failure. No constructor to look up."
+                  0 -> noCons
                   _ ->
                      do con <- startCons
                         case lookup (T.pack con) (zip conNames parsers) of
@@ -104,17 +104,43 @@ stringParseFormat
                         _ -> fail $
                              "No ']' found to terminate list at " ++ str
                f      ->
-                   fail $ "No '[' found to initiate list at " ++ str
-    , readPrim =
+                   fail $ "No '[' found to initiate list at " ++ str ++ "."
+    , readInt =
+          do str <- get
+             let prim = filter (/=' ') str
+             case reads prim of
+               [(num, xs)] ->
+                   do put xs
+                      return $ PrimInt num
+               [] -> mismatch "Int" prim
+    , readChar =
+         do str <- get
+            let prim = filter (/=' ') str
+            case length prim of
+              0 -> mismatch "Char" prim
+              _ ->
+                  do put $ tail prim
+                     return $ PrimChar $ head prim 
+    , readBool =
+          do str <- get
+             let prim = filter (/=' ') str
+             readBool' prim
+    , readDouble =
           do str <- get
              let prim = filter (/=' ') str
              case reads prim of
                [(num, xs)] ->
                    do put xs
                       return $ PrimDouble num
-               [] -> readBoolOrString prim
+               [] -> mismatch "Double" prim
+    , readString =
+          do str <- get
+             let prim = filter (/=' ') str
+             put $ snd $ delimit prim
+             return $ PrimString $ fst $ delimit prim
     }
-    where mapWithDelim mb list acc =
+    where delimit                  = L.span (/=')')
+          mapWithDelim mb list acc =
             do let (listelem, listrest) = L.span (/= ',') list
                case T.unpack $ T.strip $ T.pack listrest of
                  ',':xs -> do put listelem
@@ -123,15 +149,14 @@ stringParseFormat
                  _ -> do put listelem
                          parseElem <- mb
                          return $ acc ++ [parseElem]
-          readBoolOrString :: String -> FailT (State String) Prim
-          readBoolOrString prim
+          readBool' :: String -> FailT (State String) Prim
+          readBool' prim
               | startswith "True" prim =
                 do put $ drop 4 prim; return $ PrimBool True
               | startswith "False" prim =
                 do put $ drop 5 prim; return $ PrimBool False
               | otherwise =
-                do put $ snd $ delimit prim; return $ PrimString $ fst $ delimit prim
-              where delimit = L.span (/=')')
+                mismatch "Bool" prim
 
 startCons :: FailT (State String) String
 startCons =

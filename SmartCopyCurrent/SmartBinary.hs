@@ -29,6 +29,7 @@ import qualified Data.ByteString as BS
 
 import Control.Applicative
 import Control.Monad.Reader
+import Data.Maybe
 
 
 serializeSmart a = runPut (writeSmart binarySerializationFormat a)
@@ -63,7 +64,7 @@ binarySerializationFormat
                 PrimChar c ->
                     S.put c
     }
-    where write = writeSmart binarySerializationFormat
+    where write c = writeSmart binarySerializationFormat c
     
 binaryParseFormat :: ParseFormat Get
 binaryParseFormat
@@ -71,12 +72,12 @@ binaryParseFormat
     { readCons =
         \cons ->
             case length cons of
-              0 -> fail "No constructor to look up."
+              0 -> noCons
               1 -> 
                 if ctagged $ fst $ head cons
                    then fail $
                         "Expecting a sumtype, but there is only one constructor for look-up: " ++
-                        show $ cname $ fst $ head cons
+                        show (cname $ fst $ head cons)
                    else snd $ head cons
               n ->
                 if ctagged $ fst $ head cons
@@ -87,38 +88,23 @@ binaryParseFormat
                            fromMaybe (fail $ "Didn't find constructor with index " ++ show c ++ ".") (lookup c (zip conInds parsers))
                    else fail $
                         "Got more than one constructor for a non-tagged type: " ++
-                        show $ map (cname . fst) cons
+                        show (map (cname . fst) cons)
     , readField = id
     , readRepetition =
           getListOf $ readSmart binaryParseFormat
-    , readPrim = 
-           readInt --- Clearly not working. Fix!
-           <|> readInteger
-           <|> readDouble
-           <|> readString
-           <|> readBool
+    , readInt = 
+          do prim <- S.getWord64be
+             return $ PrimInt $ fromIntegral prim
+    , readChar =
+          do prim <- S.get
+             return $ PrimChar prim
+    , readBool =
+          do prim <- S.getWord8
+             return $ PrimBool $ toEnum $ fromIntegral prim
+    , readDouble =
+          do prim <- S.get
+             return $ PrimDouble prim
+    , readString =
+          do prim  <- S.getListOf (S.get :: Get Char)
+             return $ PrimString prim
     }
-
-readInt =
-    do prim <- S.getWord64be
-       return $ PrimInt $ fromIntegral prim
-
-readString =
-    do prim  <- S.getListOf (S.get :: Get Char)
-       return $ PrimString prim
-
-readBool =
-    do prim <- S.getWord8
-       return $ PrimBool $ toEnum $ fromIntegral prim
-
-readChar =
-    do prim :: Char <- S.get
-       return $ PrimChar prim
-
-readDouble =
-    do prim :: Double <- S.get
-       return $ PrimDouble prim
-
-readInteger =
-    do prim :: Integer <- S.get
-       return $ PrimInteger prim

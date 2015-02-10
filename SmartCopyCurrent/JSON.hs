@@ -167,7 +167,7 @@ jsonParseFormat
                    parsers = map snd cons
                    conFields = map (cfields . fst) cons
                case length cons of
-                 0 -> fail "Parsing failure. No constructor to look up."
+                 0 -> noCons
                  1 -> case val of
                         obj@(Json.Object _) ->
                             do let con = head conNames
@@ -216,9 +216,7 @@ jsonParseFormat
                                 local (const o) (readCons jsonParseFormat cons)
                             nameOrField@(Json.String _):_ ->
                                 local (const nameOrField) (head parsers)
-                            f ->
-                                fail $ "Parsing failure. Was expecting a tagged type.\
-                                       \ found" ++ show f
+                            f -> mismatch "tagged type" (show f)
                       _ ->
                           fail "Parsing failure. Was expecting a tagged type."
 
@@ -253,24 +251,63 @@ jsonParseFormat
                case val of
                  Json.Array ar ->
                      forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
-                 _ ->
-                     fail $ "Parsing failure. Was expecting array at " ++ show val ++"."
+                 _ -> mismatch "Array" (show val)
               
-    , readPrim =
+    , readInt =
         do x <- ask
            case x of
              Json.Number n ->
-                  return $ PrimDouble $ realToFrac n -- Fix!
-             Json.Bool b -> return $ PrimBool b
-             Json.String s -> return $ PrimString $ T.unpack s
+                  return $ PrimInt $ floor n
              ar@(Json.Array _) ->
                     case fromArray ar of
                       Json.Number n:xs -> return $ PrimInt $ floor n
+                      _ -> mismatch "Number" (show x)
+             _ -> mismatch "Number" (show x)
+
+    , readChar =
+        do x <- ask
+           case x of
+             Json.String s ->
+                  let str = T.unpack s in
+                  if length str == 1
+                     then return $ PrimChar $ head str
+                     else mismatch "Char" (T.unpack s)
+             ar@(Json.Array _) ->
+                    case fromArray ar of
+                      Json.String s:xs ->
+                          let str = T.unpack s in
+                          if length str == 1
+                             then return $ PrimChar $ head str
+                             else mismatch "Char" (T.unpack s)
+                      _ -> mismatch "Char" (show x)
+             _ -> mismatch "Char" (show x)
+    , readBool =
+        do x <- ask
+           case x of
+             Json.Bool b -> return $ PrimBool b
+             ar@(Json.Array _) ->
+                    case fromArray ar of
                       Json.Bool b:xs -> return $ PrimBool b
+                      _ -> mismatch "Bool" (show x)
+             _ -> mismatch "Bool" (show x)
+    , readDouble =
+        do x <- ask
+           case x of
+             Json.Number d -> return $ PrimDouble $ realToFrac d
+             ar@(Json.Array _) ->
+                    case fromArray ar of
+                      Json.Number d:xs -> return $ PrimDouble $ realToFrac d
+                      _ -> mismatch "Number" (show x)
+             _ -> mismatch "Number" (show x)
+    , readString =
+        do x <- ask
+           case x of
+             Json.String s -> return $ PrimString $ T.unpack s
+             ar@(Json.Array _) ->
+                    case fromArray ar of
                       Json.String s:xs -> return $ PrimString $ T.unpack s
-
-
-             f             -> fail $ "Parsing error. Was expecting primitive, but found: " ++ show f
+                      _ -> mismatch "String" (show x)
+             _ -> mismatch "String" (show x)
     }
     where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons

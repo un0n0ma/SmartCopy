@@ -92,7 +92,7 @@ xmlLikeParseFormat
                      conFields = map (cfields . fst) cons
                      parsers = map snd cons
                  case length cons of
-                   0 -> fail "Parsing failure. No constructor to look up."
+                   0 -> noCons
                    _ ->
                        do con <- readOpen
                           case lookup con (zip conNames parsers) of
@@ -129,28 +129,50 @@ xmlLikeParseFormat
                   do res <- readSmart xmlLikeParseFormat
                      _ <- readCloseWith "value"
                      return res
-    , readPrim =
+    , readInt =
+          do str' <- get
+             let str = filter (/=' ') str'
+             case reads str of
+               [(prim, rest)] ->
+                   do lift $ put rest
+                      return $ PrimInt prim
+               [] -> mismatch "Int" str
+    , readDouble =
           do str' <- get
              let str = filter (/=' ') str'
              case reads str of
                [(prim, rest)] ->
                    do lift $ put rest
                       return $ PrimDouble prim
-               [] ->
-                   case take 4 str of
-                     "True" ->
-                         do lift $ put $ drop 4 str
-                            return $ PrimBool True
-                     _ ->
-                        case take 5 str of
-                          "False" ->
-                               do lift $ put $ drop 5 str
-                                  return $ PrimBool False
-                          _ ->
-                            do lift $ put $ snd $ delimit str
-                               return $ PrimString $ fst $ delimit str
-                            where delimit = L.span (/='<')
+               [] -> mismatch "Double" str
+    , readBool =
+          do str' <- get
+             let str = filter (/=' ') str'
+             case take 4 str of
+               "True" ->
+                   do lift $ put $ drop 4 str
+                      return $ PrimBool True
+               _ ->
+                  case take 5 str of
+                    "False" ->
+                         do lift $ put $ drop 5 str
+                            return $ PrimBool False
+                    _ -> mismatch "Bool" str
+    , readString =
+          do str' <- get
+             let str = filter (/=' ') str'
+             do lift $ put $ snd $ delimit str
+                return $ PrimString $ fst $ delimit str
+    , readChar =
+          do str' <- get
+             let str = filter (/=' ') str'
+             case length str of
+               0 -> mismatch "Char" str
+               _ ->    
+                   do lift $ put $ tail str
+                      return $ PrimChar $ head str
     }
+    where delimit = L.span (/='<')
 
 openTag s = "<" ++ s ++ ">"
 closeTag  s = "</" ++ s ++ ">"

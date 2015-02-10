@@ -516,6 +516,14 @@ tests_Binary
              do let sResult = SB.serializeSmart Test.v12
                 pResult :: Test.ArrTypeFooBar <- either (\a -> fail $ msg a) return (SB.parseSmart sResult)
                 assertEqual "Serializing as binary" Test.v12 pResult
+        , TestCase $
+             do let sResult = SB.serializeSmart Test.v8
+                pResult :: Test.FooBar <- either (\a -> fail $ msg a) return (SB.parseSmart sResult)
+                assertEqual "Serializing as binary" Test.v8 pResult
+        , TestCase $
+             do let sResult = SB.serializeSmart Test.v7
+                pResult :: Test.FooBar <- either (\a -> fail $ msg a) return (SB.parseSmart sResult)
+                assertEqual "Serializing as binary" Test.v7 pResult
         ]
         where msg a = "Failure: " ++ a
 
