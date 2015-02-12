@@ -348,7 +348,7 @@ computeConsistency proxy
     | versions /= nub versions
     = NotConsistent $ "Duplicate version tags: " ++ show versions
     | not (validChain proxy)
-    = NotConsistent $ "Primitive types can not be extended as they have no version tag."
+    = NotConsistent "Primitive types can not be extended as they have no version tag."
     | otherwise
     = Consistent
     where versions = availableVersions proxy

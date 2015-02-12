@@ -89,13 +89,13 @@ jsonParseFormat
         do val <- ask
            case val of
              Json.Object obj ->
-                do if M.member (T.pack "version") obj
-                      then if M.member (T.pack "object") obj
-                           then do let Just withoutVersion = M.lookup (T.pack "object") obj
-                                   local (const withoutVersion) ma
-                           else do let withoutVersion = M.delete (T.pack "version") obj
-                                   local (const $ Json.Object withoutVersion) ma
-                      else mismatch "versioned JSON Value" (show obj)
+                if M.member (T.pack "version") obj
+                   then if M.member (T.pack "object") obj
+                        then do let Just withoutVersion = M.lookup (T.pack "object") obj
+                                local (const withoutVersion) ma
+                        else do let withoutVersion = M.delete (T.pack "version") obj
+                                local (const $ Json.Object withoutVersion) ma
+                   else mismatch "versioned JSON Value" (show obj)
              _ -> ma
     , readVersion = return $ Version 0
     , readRepetition =
@@ -365,10 +365,10 @@ jsonParseFormatUnvers
         do val <- ask
            case val of
              Json.Object obj ->
-                do if M.member (T.pack "version") obj
-                      then do let Just v@(Json.Number version) = M.lookup (T.pack "version") obj
-                              return $ Version $ floor version
-                      else return $ Version 0
+                if M.member (T.pack "version") obj
+                   then do let Just v@(Json.Number version) = M.lookup (T.pack "version") obj
+                           return $ Version $ floor version
+                   else return $ Version 0
              _ -> return $ Version 0
     }
     where putFieldsFromObj con cons = 

@@ -121,7 +121,7 @@ stringSerializationFormat
     , writeChar =
           \prim ->
               case prim of
-                PrimChar c   -> tell $ "c"
+                PrimChar c   -> tell "c"
                 _            -> mismatch "Prim Char" (show prim)
     , writeDouble =
           \prim ->
