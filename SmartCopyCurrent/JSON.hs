@@ -40,18 +40,80 @@ import Data.Maybe
 encode :: Json.Value -> LBS.ByteString
 encode = encodeUtf8 . toLazyText . fromValue
 
-serializeSmart a = runSerialization (writeSmart jsonSerializationFormat a)
+--- Run functions, versioned and unversioned
+
+serializeSmart a = runSerialization (smartPut jsonSerializationFormat a)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseSmart :: SmartCopy a => Json.Value -> Fail a
-parseSmart = runParser (readSmart jsonParseFormat)
+parseSmart = runParser (smartGet jsonParseFormat)
     where runParser action value = evalState (runReaderT (runFailT action) value) []
 
+serializeUnversioned a = runSerialization (writeSmart jsonSerializationFormatUnvers a)
+    where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
-jsonSerializationFormat :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
+parseUnversioned :: SmartCopy a => Json.Value -> Fail a
+parseUnversioned = runParser (readSmart jsonParseFormatUnvers)
+    where runParser action value = evalState (runReaderT (runFailT action) value) []
+
+--- Formats, unversioned and versioned
+
 jsonSerializationFormat
+    = jsonSerializationFormatUnvers
+    { withVersion =
+          \ver ma ->
+          do ma
+             val <- lift get
+             writeVersion jsonSerializationFormat ver
+             vers <- lift get
+             lift $ put $ Json.object $ fromObject vers ++ fromObject val
+    , writeVersion =
+          \ver ->
+          do let version = fromIntegral $ unVersion ver
+             lift $ put $ Json.object [("version", Json.Number version)]
+    , withRepetition =
+          \ar ->
+              case length ar of
+                0 -> return ()
+                n -> withVersion jsonSerializationFormat version $
+                     do accArray [] ar (writeSmart jsonSerializationFormat)
+                        ar <- lift get
+                        lift $ put $ arConcat ar
+                     where version = versionFromProxy (mkProxy $ head ar)
+    }
+
+jsonParseFormat
+    = jsonParseFormatUnvers
+    { readVersioned =
+        \ma ->
+        do val <- ask
+           case val of
+             Json.Object obj ->
+                do if M.member (T.pack "version") obj
+                      then if M.member (T.pack "object") obj
+                           then do let Just withoutVersion = M.lookup (T.pack "object") obj
+                                   local (const withoutVersion) ma
+                           else do let withoutVersion = M.delete (T.pack "version") obj
+                                   local (const $ Json.Object withoutVersion) ma
+                      else mismatch "versioned JSON Value" (show obj)
+             _ -> ma
+    , readVersion = return $ Version 0
+    , readRepetition =
+            do val <- ask
+               case val of
+                 Json.Array ar ->
+                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
+                 o@(Json.Object _) ->
+                     readVersioned jsonParseFormat $ readRepetition jsonParseFormat
+                 _ -> mismatch "Array" (show val)
+              
+    }
+
+
+jsonSerializationFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
+jsonSerializationFormatUnvers
     = SerializationFormat
-    { writeVersion = writeSmart jsonSerializationFormat . unVersion
+    { withVersion = const id
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -107,60 +169,53 @@ jsonSerializationFormat
           \ar ->
               case length ar of
                 0 -> return ()
-                n -> do accArray [] ar (writeSmart jsonSerializationFormat)
+                n -> do accArray [] ar (writeSmart jsonSerializationFormatUnvers)
                         ar <- lift get
                         lift $ put $ arConcat ar
-
-    , writePrimitive =
+    , writeInt =
           \prim ->
               case prim of
                 PrimInt i ->
                     do lift $ put $ Json.Number $ fromIntegral i
                        return ()
+                _ -> mismatch "Prim Int" (show prim)
+    , writeChar =
+          \prim ->
+              case prim of
+                PrimChar c ->
+                    do lift $ put $ Json.String $ T.pack [c]
+                       return ()
+                _ -> mismatch "Prim Char" (show prim)
+    , writeBool =
+          \prim ->
+              case prim of
                 PrimBool b ->
                     do lift $ put $ Json.Bool b
                        return ()
+                _ -> mismatch "Prim Bool" (show prim)
+    , writeString =
+          \prim ->
+              case prim of
                 PrimString s ->
                     do lift $ put $ Json.String $ T.pack s
                        return ()
+                _ -> mismatch "Prim String" (show prim)
+    , writeDouble =
+          \prim ->
+              case prim of
                 PrimDouble d ->
                     do lift $ put $ Json.Number $ fromFloatDigits d
                        return ()
+                _ -> mismatch "Prim Double" (show prim)
+    , writeVersion = undefined
     }
-    where accArray xs [] wf = return ()
-          accArray xs ar wf =
-                 do let el = head ar
-                    wf el
-                    val' <- lift get
-                    let val
-                            = case val' of
-                                Json.Array ar -> V.toList ar
-                                p -> [p]
-                    let acc = xs ++ val
-                    lift $ put $ array (xs ++ val)
-                    accArray acc (tail ar) wf
-                    return ()
-          takeEmptyField [] notnull =
-              fail "Encoding failure. Got more fields than expected for constructor."
-          takeEmptyField map notnull =
-                 case head map of
-                   f@(_, Json.Null) -> return (f, notnull ++ tail map)
-                   x -> takeEmptyField (tail map) (x:notnull)
-          arConcat :: Json.Value -> Json.Value
-          arConcat a@(Json.Array ar)
-              = let vs = V.toList ar in
-                case length vs of
-                  1 ->
-                    case vs of
-                      [Json.Null] -> array []
-                      _           -> head vs
-                  _ -> a
-          arConcat o = o
 
-jsonParseFormat :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
-jsonParseFormat
+
+jsonParseFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
+jsonParseFormatUnvers
     = ParseFormat
-    { readCons =
+    { readVersioned = id
+    , readCons =
         \cons ->
             do val <- ask
                let conNames = map (cname . fst) cons
@@ -209,7 +264,7 @@ jsonParseFormat
                                                   local (const $ object args) parser
                                            Nothing ->
                                                fail $ msg (T.unpack con) conNames
-                            f -> fail $ show f
+                            f -> mismatch "tagged type" (show obj)
                       ar@(Json.Array _) ->
                           case fromArray ar of
                             o@(Json.Object _):_ ->
@@ -218,8 +273,7 @@ jsonParseFormat
                                 local (const nameOrField) (head parsers)
                             f -> mismatch "tagged type" (show f)
                       _ ->
-                          fail "Parsing failure. Was expecting a tagged type."
-
+                          mismatch "tagged type" (show val)
                         
     , readField =
         \ma ->
@@ -250,9 +304,8 @@ jsonParseFormat
             do val <- ask
                case val of
                  Json.Array ar ->
-                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
+                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormatUnvers))
                  _ -> mismatch "Array" (show val)
-              
     , readInt =
         do x <- ask
            case x of
@@ -308,6 +361,15 @@ jsonParseFormat
                       Json.String s:xs -> return $ PrimString $ T.unpack s
                       _ -> mismatch "String" (show x)
              _ -> mismatch "String" (show x)
+    , readVersion =
+        do val <- ask
+           case val of
+             Json.Object obj ->
+                do if M.member (T.pack "version") obj
+                      then do let Just v@(Json.Number version) = M.lookup (T.pack "version") obj
+                              return $ Version $ floor version
+                      else return $ Version 0
+             _ -> return $ Version 0
     }
     where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons
@@ -327,9 +389,42 @@ jsonParseFormat
           msg con cons = "Didn't find constructor for tag " ++ con ++ "Only found " ++ show cons
 
 
-
 fromObject (Json.Object o) = M.toList o
+fromObject val = [("object", val)]
+
 fromArray (Json.Array a) = V.toList a
+fromArray val = [val]
+
 array = Json.Array . V.fromList
 object = Json.Object
 
+
+accArray xs [] wf = return ()
+accArray xs ar wf =
+       do let el = head ar
+          wf el
+          val' <- lift get
+          let val
+                  = case val' of
+                      Json.Array ar -> V.toList ar
+                      p -> [p]
+          let acc = xs ++ val
+          lift $ put $ array (xs ++ val)
+          accArray acc (tail ar) wf
+          return ()
+takeEmptyField [] notnull =
+    fail "Encoding failure. Got more fields than expected for constructor."
+takeEmptyField map notnull =
+       case head map of
+         f@(_, Json.Null) -> return (f, notnull ++ tail map)
+         x -> takeEmptyField (tail map) (x:notnull)
+arConcat :: Json.Value -> Json.Value
+arConcat a@(Json.Array ar)
+    = let vs = V.toList ar in
+      case length vs of
+        1 ->
+          case vs of
+            [Json.Null] -> array []
+            _           -> head vs
+        _ -> a
+arConcat o = o

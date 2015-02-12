@@ -49,21 +49,36 @@ binarySerializationFormat
              else ma
     , withField = id
     , withRepetition = putListOf write
-    , writePrimitive =
+    , writeInt =
           \prim ->
               case prim of
                 PrimInt i ->
                     putWord64be (fromIntegral i :: Word64)
-                PrimInteger i ->
-                    S.put i
+                _ -> mismatch "Prim Int" (show prim)
+    , writeString =
+          \prim ->
+              case prim of
                 PrimString s ->
                     putListOf write s
+                _ -> mismatch "Prim String" (show prim)
+    , writeBool =
+          \prim ->
+              case prim of
                 PrimBool b ->
                     putWord8 $ fromIntegral $ fromEnum b
+                _ -> mismatch "Prim Bool" (show prim)
+    , writeDouble =
+          \prim ->
+              case prim of
                 PrimDouble d ->
                     S.put (decodeFloat d)
+                _ -> mismatch "Prim Double" (show prim)
+    , writeChar =
+          \prim ->
+              case prim of
                 PrimChar c ->
                     S.put c
+                _ -> mismatch "Prim Char" (show prim)
     }
     where write c = writeSmart binarySerializationFormat c
     

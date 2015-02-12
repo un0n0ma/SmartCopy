@@ -21,22 +21,69 @@ import Data.String.Utils
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
+import Control.Applicative
 import Control.Monad.Loops
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 
-serializeSmart a = runSerialization (writeSmart xmlLikeSerializationFormat a)
+
+sFormat = xmlLikeSerializationFormat
+pFormat = xmlLikeParseFormat
+
+--- Run functions, versioned and unversioned
+
+serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = execWriter (runStateT m [])
 
 parseSmart :: SmartCopy a => String -> Fail a
-parseSmart = runParser (readSmart xmlLikeParseFormat)
+parseSmart = runParser (smartGet pFormat)
     where runParser action value = evalState (evalStateT (runFailT action) value) []
 
+serializeUnvers a = runSerialization (writeSmart xmlLikeSerializationFormatUnvers a)
+    where runSerialization m = execWriter (runStateT m [])
+
+parseUnvers :: SmartCopy a => String -> Fail a
+parseUnvers = runParser (readSmart xmlLikeParseFormatUnvers)
+    where runParser action value = evalState (evalStateT (runFailT action) value) []
+
+--- Xml-formats, unversioned and versioned
+
+xmlLikeSerializationFormatUnvers
+    = sFormat
+    { withVersion = const id
+    , writeVersion = \_ -> return ()
+    , withRepetition =
+          \list ->
+              forM_ (zip list (repeat "value")) $
+              \el ->
+                  do tell $ openTag $ snd el
+                     writeSmart sFormat $ fst el
+                     tell $ closeTag $ snd el
+    , writeMaybe =
+          \m ->
+            case m of
+              Just a -> writeSmart xmlLikeSerializationFormatUnvers a
+              Nothing -> return ()
+    }
+
+xmlLikeParseFormatUnvers
+    = pFormat
+    { readVersioned = id
+    , readVersion = return $ Version 0
+    , readMaybe =
+          liftM Just (readSmart xmlLikeParseFormatUnvers) <|>
+          do _ <- readClose; return Nothing
+    }
+    where delimit = L.span (/='<')
+    
 xmlLikeSerializationFormat :: SerializationFormat (StateT [String] (Writer String))
 xmlLikeSerializationFormat
     = SerializationFormat
-    { writeVersion = undefined
+    { withVersion =
+          \ver m -> writeVersion sFormat ver >> m
+    , writeVersion =
+          \ver -> tell $ "<?version=" ++ show (unVersion ver) ++ "?>"
     , withCons =
           \cons m ->
           do let conName = T.unpack $ cname cons
@@ -68,25 +115,68 @@ xmlLikeSerializationFormat
                    [] -> m
     , withRepetition =
           \list ->
-              forM_ (zip list (repeat "value")) $
-              \el ->
-                  do tell $ openTag $ snd el
-                     writeSmart xmlLikeSerializationFormat $ fst el
-                     tell $ closeTag $ snd el
-    , writePrimitive =
+              case length list of
+                0 -> return ()
+                n -> withVersion sFormat version $
+                     forM_ (zip list (repeat "value")) $
+                     \el ->
+                         do tell $ openTag $ snd el
+                            writeSmart sFormat $ fst el
+                            tell $ closeTag $ snd el
+                     where version = versionFromProxy (mkProxy $ head list)
+    , writeInt =
           \prim ->
             case prim of
               PrimInt i -> tell $ show i
-              PrimBool b -> tell $ show b
+              _         -> mismatch "Prim Int" (show prim)
+    , writeChar =
+          \prim ->
+            case prim of
+              PrimChar c -> tell "c"
+              _         -> mismatch "Prim Char" (show prim)
+    , writeString =
+          \prim ->
+            case prim of
               PrimString s -> tell s
+              _         -> mismatch "Prim String" (show prim)
+    , writeBool =
+          \prim ->
+            case prim of
+              PrimBool b -> tell $ show b
+              _         -> mismatch "Prim Bool" (show prim)
+    , writeDouble =
+          \prim ->
+            case prim of
               PrimDouble d -> tell $ show d
+              _         -> mismatch "Prim Double" (show prim)
+    , writeMaybe =
+          \m ->
+            case m of
+              Just a -> smartPut sFormat a
+              Nothing -> return ()
     }
                 
 
 xmlLikeParseFormat :: ParseFormat (FailT (StateT String (State [String])))
 xmlLikeParseFormat
     = ParseFormat
-    { readCons =
+    { readVersioned = id
+    , readVersion =
+        do str' <- get
+           let str = filter (/=' ') str'
+           if startswith "<?version=" str
+              then do let (version, rest) = L.span (/='?') (drop 10 str)
+                      if startswith "?>" rest
+                         then 
+                           case reads version of
+                             [(int, [])] ->
+                                 do lift $ put $ drop 2 rest
+                                    return $ Version int
+                             [] -> mismatch "Int32" version
+                         else mismatch "closing tag for version" str
+              else do lift $ put str
+                      return $ Version 0
+    , readCons =
           \cons ->
               do str <- get
                  let conNames = map (T.unpack . cname . fst) cons
@@ -125,11 +215,12 @@ xmlLikeParseFormat
                           lift $ lift $ put xs
                           return res
     , readRepetition =
-          whileJust enterElemMaybe $
-              \_ ->
-                  do res <- readSmart xmlLikeParseFormat
-                     _ <- readCloseWith "value"
-                     return res
+          do readVersion pFormat
+             whileJust enterElemMaybe $
+                 \_ ->
+                     do res <- readSmart xmlLikeParseFormat
+                        _ <- readCloseWith "value"
+                        return res
     , readInt =
           do str' <- get
              let str = filter (/=' ') str'
@@ -172,6 +263,9 @@ xmlLikeParseFormat
                _ ->    
                    do lift $ put $ tail str
                       return $ PrimChar $ head str
+    , readMaybe =
+          liftM Just (smartGet pFormat) <|>
+          do _ <- readClose; return Nothing
     }
     where delimit = L.span (/='<')
 

@@ -30,80 +30,97 @@ import Control.Monad.Reader
 import Data.Maybe
 
 
-serializeSmart a = runPut $ smartPut safeCopySerializationFormat a
+sFormat = safeCopySerializationFormat
+pFormat = safeCopyParseFormat
+
+serializeSmart a = S.runPut $ smartPut sFormat a
 
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
-parseSmart = runGet $ smartGet safeCopyParseFormat
+parseSmart = S.runGet $ smartGet pFormat
 
 safeCopySerializationFormat :: SerializationFormat PutM
 safeCopySerializationFormat
     = SerializationFormat
-    { writeVersion = S.put . unVersion
+    { withVersion =
+          \ver ma ->
+              do writeVersion sFormat ver  -- version is written after tag! 
+                 ma
+    , writeVersion = S.put . unVersion
     , withCons =
           \cons ma ->
-          if ctagged cons
-             then do putWord8 (fromIntegral $ cindex cons)
-                     ma
-             else ma
+              do putWord8 (fromIntegral $ cindex cons)
+                 ma
     , withField = id
-    , withRepetition = putListOf write
-    , writePrimitive =
+    , withRepetition =
+          \lst ->
+              do S.put (length lst)
+                 getSmartPut sFormat >>= forM_ lst
+    , writeInt =
           \prim ->
               case prim of
                 PrimInt i ->
-                    putWord64be (fromIntegral i)
+                    S.put i
+                _ -> mismatch "Prim int" (show prim)
+    , writeChar =
+          \prim ->
+              case prim of
+                PrimChar i ->
+                    S.put i
+                _ -> mismatch "Prim char" (show prim)
+    , writeInteger =
+          \prim ->
+              case prim of
                 PrimInteger i ->
                     S.put i
-                PrimString s ->
-                    putListOf write s
+                _ -> mismatch "Prim integer" (show prim)
+    , writeString =
+          \prim ->
+              case prim of
+                PrimString s -> withRepetition sFormat s
+                _ -> mismatch "Prim string" (show prim)
+    , writeBool =
+          \prim ->
+              case prim of
                 PrimBool b ->
-                    putWord8 $ fromIntegral $ fromEnum b
+                    S.put b
+                _ -> mismatch "Prim bool" (show prim)
+    , writeDouble =
+          \prim ->
+              case prim of
                 PrimDouble d ->
-                    S.put (decodeFloat d)
-                PrimChar c ->
-                    S.put c
+                    S.put d
+                _ -> mismatch "Prim double" (show prim)
     , writeMaybe =
           \m ->
               case m of
                 Just a ->
-                    S.put True >> write a
+                    S.put True >> smartPut sFormat a
                 Nothing ->
                     S.put False
     }
-    where write c = writeSmart safeCopySerializationFormat c
     
 safeCopyParseFormat :: ParseFormat Get
 safeCopyParseFormat
     = ParseFormat
-    { readVersion = liftM Version S.get
+    { readVersioned = id
+    , readVersion = liftM Version S.get
     , readCons =
         \cons ->
           case length cons of
             0 -> noCons
-            1 ->
-              if ctagged $ fst $ head cons
-                 then fail $
-                      "Expecting a sumtype, but there is only one constructor for look-up: "
-                      ++ show (cname $ fst $ head cons)
-                 else snd $ head cons
-            n ->
-              if ctagged $ fst $ head cons
-                 then do
-                        c <- getWord8
-                        let conInds = map (fromIntegral . cindex . fst) cons
-                            parsers = map snd cons
-                        fromMaybe (fail $ "Didn't find constructor with index "
-                                        ++ show c ++ ".")
-                                  (lookup c (zip conInds parsers))
-                 else fail $
-                      "Got more than one constructor for a non-tagged type: " ++
-                      show (map (cname .fst) cons)
+            n -> do c <- getWord8
+                    let conInds = map (fromIntegral . cindex . fst) cons
+                        parsers = map snd cons
+                    fromMaybe (fail $ "Didn't find constructor with index "
+                                    ++ show c ++ ".")
+                              (lookup c (zip conInds parsers))
     , readField = id
     , readRepetition =
-          getListOf $ readSmart safeCopyParseFormat
+          do n <- S.get
+             getSmartGet pFormat >>= replicateM n
     , readInt =
-          do prim <- S.getWord64be
-             return $ PrimInt $ fromIntegral prim
+          do prim <- S.get
+             return $ PrimInt prim
     , readChar =
           do prim <- S.get
              return $ PrimChar prim
@@ -118,6 +135,6 @@ safeCopyParseFormat
              return $ PrimString prim
     , readMaybe =
           do b <- S.get
-             if b then liftM Just $ readSmart safeCopyParseFormat
+             if b then liftM Just $ smartGet safeCopyParseFormat
                   else return Nothing
     }

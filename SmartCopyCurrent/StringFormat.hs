@@ -25,17 +25,82 @@ import Control.Monad.State
 import Control.Monad.Writer
 
 
-serializeSmart a = runSerialization (writeSmart stringSerializationFormat a)
+sFormat = stringSerializationFormat
+pFormat = stringParseFormat
+
+--- Run functions, versioned and unversioned
+
+serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = snd $ runWriter m
 
 parseSmart :: SmartCopy a => String -> Fail a
-parseSmart = runParser (readSmart stringParseFormat)
+parseSmart = runParser (smartGet pFormat)
     where runParser action = evalState (runFailT action)
+
+serializeUnvers a = runSerialization (writeSmart stringSerializationFormatUnvers a)
+    where runSerialization m = snd $ runWriter m
+
+parseUnvers :: SmartCopy a => String -> Fail a
+parseUnvers = runParser (readSmart stringParseFormatUnvers)
+    where runParser action = evalState (runFailT action)
+
+--- Formats, unversioned and versioned
+
+stringSerializationFormatUnvers
+    = stringSerializationFormat
+    { writeVersion = \_ -> return ()
+    , withVersion = const id
+    , withRepetition =
+          \rep ->
+              do tell "["
+                 case length rep of
+                   0 -> tell ""
+                   n -> do mapM_ (\a ->
+                                  do writeSmart stringSerializationFormatUnvers a
+                                     tell ",") (init rep)
+                           writeSmart stringSerializationFormatUnvers $ last rep
+                 tell "]"
+    }
+
+stringParseFormatUnvers
+    = stringParseFormat
+    { readVersion = return $ Version 0
+    , readRepetition =
+          do str' <- get
+             let str = filter (/=' ') str'
+             case str of
+               '[':xs ->
+                   do let (list, rest) = L.span (/= ']') xs
+                      case rest of
+                        ']':xs -> do
+                            put list
+                            res <- mapWithDelim (readSmart stringParseFormatUnvers) list []
+                            put xs
+                            return res 
+                        _ -> fail $
+                             "No ']' found to terminate list at " ++ str
+               f      ->
+                   fail $ "No '[' found to initiate list at " ++ str ++ "."
+    }
+    where mapWithDelim mb list acc =
+              do let (listelem, listrest) = L.span (/= ',') list
+                 case T.unpack $ T.strip $ T.pack listrest of
+                   ',':xs -> do put listelem
+                                parseElem <- mb
+                                mapWithDelim mb xs (acc ++ [parseElem])
+                   _ -> do put listelem
+                           parseElem <- mb
+                           return $ acc ++ [parseElem]
 
 stringSerializationFormat :: SerializationFormat (Writer String)
 stringSerializationFormat
     = SerializationFormat
-    { writeVersion = undefined
+    { writeVersion =
+          \ver ->
+              tell $ (show $ unVersion ver) ++ ": "
+    , withVersion =
+          \ver m ->
+              writeVersion sFormat ver >> m
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
@@ -43,23 +108,36 @@ stringSerializationFormat
           wrapM
     , withRepetition =
           \rep ->
-              do tell "["
-                 case length rep of
-                   0 -> tell ""
-                   n -> do mapM_ (\a ->
-                                  do writeSmart stringSerializationFormat a
-                                     tell ",") (init rep)
-                           writeSmart stringSerializationFormat $ last rep
-                 tell "]"
-
-    , writePrimitive =
+              do let version = case length rep of
+                                 0 -> Version 0
+                                 _ -> versionFromProxy (mkProxy $ head rep)
+                 writeVersion sFormat version >>
+                     withRepetition stringSerializationFormatUnvers rep
+    , writeInt =
           \prim ->
               case prim of
                 PrimInt i    -> tell $ show i
+                _            -> mismatch "Prim Int" (show prim)
+    , writeChar =
+          \prim ->
+              case prim of
+                PrimChar c   -> tell $ "c"
+                _            -> mismatch "Prim Char" (show prim)
+    , writeDouble =
+          \prim ->
+              case prim of
                 PrimDouble d -> tell $ show d
+                _            -> mismatch "Prim Double" (show prim)
+    , writeString =
+          \prim ->
+              case prim of
                 PrimString s -> tell s
+                _            -> mismatch "Prim String" (show prim)
+    , writeBool =
+          \prim ->
+              case prim of
                 PrimBool b   -> tell $ show b
-                f            -> mismatch "primitive value" (show f)
+                _            -> mismatch "Prim Bool" (show prim)
     }
     where wrapM m = do { tell " ("; m; tell ") " }
 
@@ -68,7 +146,21 @@ stringSerializationFormat
 stringParseFormat :: ParseFormat (FailT (State String))
 stringParseFormat
     = ParseFormat
-    { readCons =
+    { readVersioned = id
+    , readVersion =
+         do str' <- get
+            let str = filter (/=' ') str'
+                (version, after) = L.span (/=':') str
+            case after of
+              ':':xs ->
+                  case reads version of
+                    [(int, [])] ->
+                        do put xs
+                           return $ Version int
+                    _ -> mismatch "Int32" version
+              _ -> do put after
+                      return $ Version 0
+    , readCons =
          \cons ->
              do str <- get
                 let conNames = map (cname . fst) cons
@@ -91,21 +183,7 @@ stringParseFormat
                  return res
 
     , readRepetition =
-          do str' <- get
-             let str = filter (/=' ') str'
-             case str of
-               '[':xs ->
-                   do let (list, rest) = L.span (/= ']') xs
-                      case rest of
-                        ']':xs -> do
-                            put list
-                            res <- mapWithDelim (readSmart stringParseFormat) list []
-                            put xs
-                            return res 
-                        _ -> fail $
-                             "No ']' found to terminate list at " ++ str
-               f      ->
-                   fail $ "No '[' found to initiate list at " ++ str ++ "."
+          readVersion pFormat >> readRepetition stringParseFormatUnvers
     , readInt =
           do str <- get
              let prim = filter (/=' ') str
@@ -141,15 +219,6 @@ stringParseFormat
              return $ PrimString $ fst $ delimit prim
     }
     where delimit                  = L.span (/=')')
-          mapWithDelim mb list acc =
-            do let (listelem, listrest) = L.span (/= ',') list
-               case T.unpack $ T.strip $ T.pack listrest of
-                 ',':xs -> do put listelem
-                              parseElem <- mb
-                              mapWithDelim mb xs (acc ++ [parseElem])
-                 _ -> do put listelem
-                         parseElem <- mb
-                         return $ acc ++ [parseElem]
           readBool' :: String -> FailT (State String) Prim
           readBool' prim
               | startswith "True" prim =
