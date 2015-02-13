@@ -164,15 +164,15 @@ instance SmartCopy BoolTest' where
     kind = base
     readSmart fmt =
         readCons fmt [(C "BoolTest'" (LF ["blist", "b", "slist"]) False 0, readBT)]
-        where readBT = do blist <- readField fmt $ readRepetition fmt 
+        where readBT = do blist <- readField fmt $ smartGet fmt 
                           b <- readField fmt $ smartGet fmt
-                          slist <- readField fmt $ readRepetition fmt
+                          slist <- readField fmt $ smartGet fmt
                           return $ BoolTest' blist b slist
     writeSmart fmt x@(BoolTest' blist b slist) =
         withCons fmt (C "BoolTest'" (LF ["blist", "b", "slist"]) False 0) $
-            do withField fmt $ withRepetition fmt blist
+            do withField fmt $ smartPut fmt blist
                withField fmt $ smartPut fmt b
-               withField fmt $ withRepetition fmt slist
+               withField fmt $ smartPut fmt slist
 
 instance SmartCopy StringTest where
     version = 1
@@ -188,12 +188,12 @@ instance SmartCopy StringTest' where
     readSmart fmt =
         readCons fmt [(C "StringTest'" (NF 2) False 0, readFields)]
         where readFields = do s :: String <- readField fmt $ smartGet fmt
-                              ints <- readField fmt $ readRepetition fmt
+                              ints <- readField fmt $ smartGet fmt
                               return $ StringTest' s ints
     writeSmart fmt x@(StringTest' s ints) =
         withCons fmt (C "StringTest'" (NF 2) False 0) writeFields
         where writeFields = do withField fmt (smartPut fmt s)
-                               withField fmt $ withRepetition fmt ints
+                               withField fmt $ smartPut fmt ints
                                
 
 instance SmartCopy ArrType where
@@ -201,26 +201,26 @@ instance SmartCopy ArrType where
     kind = base
     readSmart fmt =
         readCons fmt [(C "ArrType" (NF 1) False 0, readInts)]
-        where readInts = do ints <- readField fmt $ readRepetition fmt
+        where readInts = do ints <- readField fmt $ smartGet fmt
                             return $ ArrType ints
 
     writeSmart fmt x@(ArrType ints) =
         withCons fmt (C "ArrType" (NF 1) False 0) $ withField fmt writePrimList
         where writePrimList =
-                withRepetition fmt ints
+                smartPut fmt ints
 
 instance SmartCopy ArrTypeBar where
     version = 1
     kind = base
     readSmart fmt =
         readCons fmt [(C "ArrTypeBar" (NF 1) False 0, readBars)]
-        where readBars = do bars <- readField fmt $ readRepetition fmt
+        where readBars = do bars <- readField fmt $ smartGet fmt
                             return $ ArrTypeBar bars
 
     writeSmart fmt x@(ArrTypeBar bars) =
         withCons fmt (C "ArrTypeBar" (NF 1) False 0) $ withField fmt writeBarList
         where writeBarList =
-                withRepetition fmt bars
+                smartPut fmt bars
 
 instance SmartCopy ArrTypeFooBar where
     version = 1
@@ -228,12 +228,12 @@ instance SmartCopy ArrTypeFooBar where
     readSmart fmt =
         readCons fmt [(C "ArrTypeFooBar" (NF 1) False 0, readFbars)]
         where readFbars =
-                  do fbars <- readField fmt $ readRepetition fmt
+                  do fbars <- readField fmt $ smartGet fmt
                      return $ ArrTypeFooBar fbars
     writeSmart fmt x@(ArrTypeFooBar fbars) =
         withCons fmt (C "ArrTypeFooBar" (NF 1) False 0) $ withField fmt writeFBList
         where writeFBList =
-                withRepetition fmt fbars
+                smartPut fmt fbars
 
 instance SmartCopy Foo where
     version = 1
@@ -493,6 +493,8 @@ main = do args <- getArgs
                    liftIO $ print (J.parseSmart js1 :: Fail Easy)
                    liftIO $ print (J.parseUnversioned js2 :: Fail MyDouble)
                    liftIO $ print (J.parseUnversioned js3 :: Fail FooBar)
+                   liftIO $ print (J.serializeSmart string')
+                   liftIO $ print (J.parseSmart (J.serializeSmart string') :: Fail StringTest')
                    putStrLn "DATATYPES as JSON Values:"
                    liftIO $ print (J.serializeSmart v6)
                    liftIO $ print (J.serializeSmart some2)                   

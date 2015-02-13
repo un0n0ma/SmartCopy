@@ -149,6 +149,20 @@ tests_JSON_vers =
              do let sResult = J.serializeSmart Test.booltest'
                 pResult :: Test.BoolTest' <- fromOk $ J.parseSmart sResult
                 assertEqual "Serializing as versioned JSON Value" Test.booltest' pResult
+                {- not working yet
+        , TestCase $
+             do let sResult = J.serializeSmart TestV2.easy
+                pResult :: TestV2.EasyV2 <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" TestV2.easy pResult
+        , TestCase $
+             do let sResult = J.serializeSmart TestV2.some
+                pResult :: TestV2.SomeV2 <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" TestV2.some pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.some1
+                pResult <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.some1 pResult
+                -}
         ]
 
 tests_JSON_unvers
@@ -188,7 +202,11 @@ tests_JSON_unvers
         , TestCase $
              do let sResult = J.serializeUnversioned Test.string
                 pResult :: Test.StringTest <- fromOk $ J.parseUnversioned  sResult
-                assertEqual "Serializing as String'>" Test.string pResult
+                assertEqual "Serializing as JSON Value" Test.string pResult
+        , TestCase $
+             do let sResult = J.serializeUnversioned Test.string'
+                pResult :: Test.StringTest' <- fromOk $ J.parseUnversioned sResult
+                assertEqual "Serializing as JSON Value" Test.string' pResult
         , TestCase $
              do let sResult = J.serializeUnversioned Test.v1
                 pResult :: Test.Foo <- fromOk $ J.parseUnversioned  sResult
@@ -398,6 +416,10 @@ tests_String_vers
                 pResult :: Test.Some' <- fromOk $ S.parseSmart sResult
                 assertEqual "Serializing as versioned String" Test.some2 pResult
         , TestCase $
+             do let sResult = S.serializeSmart Test.some1
+                pResult :: Test.Some <- fromOk $ S.parseSmart sResult
+                assertEqual "Serializing as versioned String" Test.some1 pResult
+        , TestCase $
              do let sResult = S.serializeSmart Test.v4
                 pResult :: Test.FooBar <- fromOk $ S.parseSmart sResult
                 assertEqual "Serializing as versioned String" Test.v4 pResult
@@ -429,6 +451,14 @@ tests_String_vers
              do let sResult = S.serializeSmart Test.string'
                 pResult :: Test.StringTest' <- fromOk $ S.parseSmart sResult
                 assertEqual "Serializing as versioned String" Test.string' pResult
+        , TestCase $
+             do let sResult = S.serializeSmart Test.mybool
+                pResult :: Test.MyBool <- fromOk $ S.parseSmart sResult
+                assertEqual "Serializing as versioned String" Test.mybool pResult
+        , TestCase $
+             do let sResult = S.serializeSmart Test.bar
+                pResult :: Test.Bar <- fromOk $ S.parseSmart sResult
+                assertEqual "Serializing as versioned String" Test.bar pResult
         , TestCase $
              do let sResult = S.serializeSmart Test.booltest
                 pResult :: Test.BoolTest <- fromOk $ S.parseSmart sResult
@@ -473,6 +503,18 @@ tests_Xml_vers
                 pResult :: Test.Some' <- fromOk $ X.parseSmart sResult
                 assertEqual "Serializing as versioned Xml" Test.some2 pResult
         , TestCase $
+             do let sResult = X.serializeSmart Test.some1
+                pResult :: Test.Some <- fromOk $ X.parseSmart sResult
+                assertEqual "Serializing as versioned Xml" Test.some1 pResult
+        , TestCase $
+             do let sResult = X.serializeSmart Test.mybool
+                pResult :: Test.MyBool <- fromOk $ X.parseSmart sResult
+                assertEqual "Serializing as versioned Xml" Test.mybool pResult
+        , TestCase $
+             do let sResult = X.serializeSmart Test.mybool'
+                pResult :: Test.MyBool <- fromOk $ X.parseSmart sResult
+                assertEqual "Serializing as versioned Xml" Test.mybool' pResult
+        , TestCase $
              do let sResult = X.serializeSmart Test.v4
                 pResult :: Test.FooBar <- fromOk $ X.parseSmart sResult
                 assertEqual "Serializing as versioned Xml" Test.v4 pResult
@@ -508,10 +550,6 @@ tests_Xml_vers
              do let sResult = X.serializeSmart Test.v8
                 pResult :: Test.ArrTypeFooBar <- fromOk $ X.parseSmart sResult
                 assertEqual "Serializing as versioned Xml" Test.v8 pResult
-        , TestCase $
-             do let sResult = X.serializeSmart Test.v6
-                pResult :: Test.ArrType <- fromOk $ X.parseSmart sResult
-                assertEqual "Serializing as versioned Xml" Test.v6 pResult
         , TestCase $
              do let sResult = X.serializeSmart Test.v6
                 pResult :: Test.ArrType <- fromOk $ X.parseSmart sResult

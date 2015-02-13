@@ -46,14 +46,14 @@ serializeSmart a = runSerialization (smartPut jsonSerializationFormat a)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseSmart :: SmartCopy a => Json.Value -> Fail a
-parseSmart = runParser (smartGet jsonParseFormat)
+parseSmart = runParser (smartGet pFormat)
     where runParser action value = evalState (runReaderT (runFailT action) value) []
 
-serializeUnversioned a = runSerialization (writeSmart jsonSerializationFormatUnvers a)
+serializeUnversioned a = runSerialization (writeSmart jsonSerializationFormatUnvers a) -- we can also use writeSmart here
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseUnversioned :: SmartCopy a => Json.Value -> Fail a
-parseUnversioned = runParser (readSmart jsonParseFormatUnvers)
+parseUnversioned = runParser (readSmart pFormatUnvers) -- we can also use readSmart here
     where runParser action value = evalState (runReaderT (runFailT action) value) []
 
 --- Formats, unversioned and versioned
@@ -71,7 +71,7 @@ jsonSerializationFormat
           \ver ->
           do let version = fromIntegral $ unVersion ver
              lift $ put $ Json.object [("version", Json.Number version)]
-    , withRepetition =
+    , writeRepetition =
           \ar ->
               case length ar of
                 0 -> return ()
@@ -81,8 +81,8 @@ jsonSerializationFormat
                         lift $ put $ arConcat ar
     }
 
-jsonParseFormat
-    = jsonParseFormatUnvers
+pFormat
+    = pFormatUnvers
     { readVersioned =
         \ma ->
         do val <- ask
@@ -116,9 +116,14 @@ jsonParseFormat
             do val <- ask
                case val of
                  Json.Array ar ->
-                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
+                     case V.toList ar of
+                       ar1@(Json.Array _):_ ->
+                           local (const ar1) (readRepetition pFormat)
+                       _ ->
+                           getSmartGet pFormat >>=
+                           (\getter -> forM (V.toList ar) (\el -> local (const el) getter))
                  o@(Json.Object _) ->
-                     readVersioned jsonParseFormat $ readRepetition jsonParseFormatUnvers
+                     readVersioned pFormat $ readRepetition pFormat
                  _ -> mismatch "Array" (show val)
               
     }
@@ -140,6 +145,12 @@ jsonSerializationFormatUnvers :: SerializationFormat (StateT (Either Json.Value 
 jsonSerializationFormatUnvers
     = SerializationFormat
     { withVersion = const id
+    {- possible way to avoid arrays within arrays and not use arConcat?
+    \_ ma ->
+          do ma
+             val <- lift get
+             lift $ put $ arConcat val
+             -}
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -174,7 +185,7 @@ jsonSerializationFormatUnvers
                      do put $ Left $ Json.Array V.empty
                         _ <- ma
                         Left res <- get
-                        lift $ put $ arConcat res
+                        lift $ put $ arConcat res ------ !!!!!!! arConcat needed for Aeson compatibility, but messes with versioning
 
     , withField =
           \ma ->
@@ -191,7 +202,7 @@ jsonSerializationFormatUnvers
                           put $ Left $ Json.Array $ ar `V.snoc` value
                    f -> fail $ "No fields found at " ++ show f
 
-    , withRepetition =
+    , writeRepetition =
           \ar ->
               case length ar of
                 0 -> return ()
@@ -237,8 +248,8 @@ jsonSerializationFormatUnvers
     }
 
 
-jsonParseFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
-jsonParseFormatUnvers
+pFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
+pFormatUnvers
     = ParseFormat
     { readVersioned = id
     , readCons =
@@ -281,7 +292,7 @@ jsonParseFormatUnvers
                                             do putFieldsFromObj con cons
                                                local (const args) parser
                                         Nothing ->
-                                            fail $ msg (T.unpack con) conNames
+                                            conLookupErr (T.unpack con) (show conNames)
                                   Nothing ->
                                       do let args = M.delete (T.pack "tag") obj
                                          case lookup con (zip conNames parsers) of
@@ -289,15 +300,25 @@ jsonParseFormatUnvers
                                                do _ <- putFieldsFromObj con cons
                                                   local (const $ object args) parser
                                            Nothing ->
-                                               fail $ msg (T.unpack con) conNames
+                                            conLookupErr (T.unpack con) (show conNames)
                             f -> mismatch "tagged type" (show obj)
                       ar@(Json.Array _) ->
                           case fromArray ar of
                             o@(Json.Object _):_ ->
-                                local (const o) (readCons jsonParseFormat cons)
-                            nameOrField@(Json.String _):_ ->
-                                local (const nameOrField) (head parsers)
+                                local (const o) (readCons pFormat cons)
+                            nameOrField@(Json.String tag):_ ->
+                                case lookup tag (zip conNames parsers) of
+                                  Just parser ->
+                                      local (const nameOrField) parser
+                                  Nothing ->
+                                      conLookupErr (show tag) (show conNames)
                             f -> mismatch "tagged type" (show f)
+                      tag@(Json.String s) ->
+                          case lookup s (zip conNames parsers) of
+                            Just parser ->
+                                local (const tag) parser
+                            Nothing ->
+                                conLookupErr (show tag) (show conNames)
                       _ ->
                           mismatch "tagged type" (show val)
                         
@@ -330,7 +351,12 @@ jsonParseFormatUnvers
             do val <- ask
                case val of
                  Json.Array ar ->
-                     forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormatUnvers))
+                     case V.toList ar of
+                       ar1@(Json.Array _):_ ->
+                           local (const ar1) (readRepetition pFormat)
+                       _ ->
+                           forM (V.toList ar) (\el -> local (const el) $
+                           readSmart pFormatUnvers)
                  _ -> mismatch "Array" (show val)
     , readInt =
         do x <- ask
@@ -389,6 +415,7 @@ jsonParseFormatUnvers
              _ -> mismatch "String" (show x)
     , readVersion = return $ Version 1
     }
+
     where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons
                      conNames = map (cname . fst) cons
@@ -404,7 +431,6 @@ jsonParseFormatUnvers
                      fields = [0..l-1]
                  put $ map show fields
                  return $ T.unpack ""
-          msg con cons = "Didn't find constructor for tag " ++ con ++ "Only found " ++ show cons
 
 
 fromObject (Json.Object o) = M.toList o

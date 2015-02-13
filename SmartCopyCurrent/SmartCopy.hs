@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -124,6 +125,12 @@ instance SmartCopy a => SmartCopy (Maybe a) where
     readSmart = readMaybe
     writeSmart = writeMaybe
 
+instance SmartCopy a => SmartCopy [a] where
+    version = 0 --- version handling for lists is done in formats, so lists per se are primitives
+    kind = primitive
+    readSmart = readRepetition
+    writeSmart = writeRepetition
+
 instance (SmartCopy a, SmartCopy b) => SmartCopy (a, b) where
     readSmart fmt = liftM2 (,) (readSmart fmt) (readSmart fmt)
     writeSmart fmt (a, b) = writeSmart fmt a >> writeSmart fmt b
@@ -150,7 +157,7 @@ data SerializationFormat m
     { withVersion :: forall a. Version a -> m () -> m ()
     , withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
-    , withRepetition :: SmartCopy a => [a] -> m ()
+    , writeRepetition :: SmartCopy a => [a] -> m ()
     , writeInt :: Prim -> m ()
     , writeInteger :: Prim -> m ()
     , writeChar :: Prim -> m ()
@@ -183,6 +190,11 @@ data ParseFormat m
 
 mismatch :: Monad m => forall a. String -> String -> m a
 mismatch exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
+
+conLookupErr :: Monad m => forall a. String -> String -> m a
+conLookupErr exp list = fail $ concat $
+                             [ "Didn't find constructor tag ",
+                               exp, "in map ", list ]
 
 noCons :: Monad m => forall a. m a
 noCons = fail "No constructor found during look-up."

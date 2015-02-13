@@ -53,7 +53,7 @@ safeCopySerializationFormat
                       ma
               else ma
     , withField = id
-    , withRepetition =
+    , writeRepetition =
           \lst ->
               do S.put (length lst)
                  getSmartPut sFormat >>= forM_ lst
@@ -78,7 +78,7 @@ safeCopySerializationFormat
     , writeString =
           \prim ->
               case prim of
-                PrimString s -> withRepetition sFormat s
+                PrimString s -> writeRepetition sFormat s
                 _ -> mismatch "Prim string" (show prim)
     , writeBool =
           \prim ->

@@ -48,7 +48,7 @@ binarySerializationFormat
                      ma
              else ma
     , withField = id
-    , withRepetition = putListOf write
+    , writeRepetition = putListOf write
     , writeInt =
           \prim ->
               case prim of

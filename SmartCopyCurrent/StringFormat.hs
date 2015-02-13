@@ -25,9 +25,6 @@ import Control.Monad.State
 import Control.Monad.Writer
 
 
-sFormat = stringSerializationFormat
-pFormat = stringParseFormat
-
 --- Run functions, versioned and unversioned
 
 serializeSmart a = runSerialization (smartPut sFormat a)
@@ -37,33 +34,33 @@ parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (smartGet pFormat)
     where runParser action = evalState (runFailT action)
 
-serializeUnvers a = runSerialization (writeSmart stringSerializationFormatUnvers a)
+serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
     where runSerialization m = snd $ runWriter m
 
 parseUnvers :: SmartCopy a => String -> Fail a
-parseUnvers = runParser (readSmart stringParseFormatUnvers)
+parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action = evalState (runFailT action)
 
 --- Formats, unversioned and versioned
 
-stringSerializationFormatUnvers
-    = stringSerializationFormat
+sFormatUnvers
+    = sFormat
     { writeVersion = \_ -> return ()
     , withVersion = const id
-    , withRepetition =
+    , writeRepetition =
           \rep ->
               do tell "["
                  case length rep of
                    0 -> tell ""
                    n -> do mapM_ (\a ->
-                                  do writeSmart stringSerializationFormatUnvers a
+                                  do writeSmart sFormatUnvers a
                                      tell ",") (init rep)
-                           writeSmart stringSerializationFormatUnvers $ last rep
+                           writeSmart sFormatUnvers $ last rep
                  tell "]"
     }
 
-stringParseFormatUnvers
-    = stringParseFormat
+pFormatUnvers
+    = pFormat
     { readVersion = return $ Version 1
     , readRepetition =
           do str' <- get
@@ -74,7 +71,7 @@ stringParseFormatUnvers
                       case rest of
                         ']':xs -> do
                             put list
-                            res <- mapWithDelim (readSmart stringParseFormatUnvers) list []
+                            res <- mapWithDelim (readSmart pFormatUnvers) list []
                             put xs
                             return res 
                         _ -> fail $
@@ -92,8 +89,8 @@ stringParseFormatUnvers
                            parseElem <- mb
                            return $ acc ++ [parseElem]
 
-stringSerializationFormat :: SerializationFormat (Writer String)
-stringSerializationFormat
+sFormat :: SerializationFormat (Writer String)
+sFormat
     = SerializationFormat
     { writeVersion =
           \ver ->
@@ -106,13 +103,13 @@ stringSerializationFormat
               do { tell $ T.unpack $ cname cons; ma }
     , withField =
           wrapM
-    , withRepetition =
+    , writeRepetition =
           \rep ->
               do let version = case length rep of
                                  0 -> Version 0
                                  _ -> versionFromProxy (mkProxy $ head rep)
                  writeVersion sFormat version >>
-                     withRepetition stringSerializationFormatUnvers rep
+                     writeRepetition sFormatUnvers rep
     , writeInt =
           \prim ->
               case prim of
@@ -143,8 +140,8 @@ stringSerializationFormat
 
                 
 
-stringParseFormat :: ParseFormat (FailT (State String))
-stringParseFormat
+pFormat :: ParseFormat (FailT (State String))
+pFormat
     = ParseFormat
     { readVersioned = id
     , readVersion =
@@ -172,9 +169,7 @@ stringParseFormat
                         case lookup (T.pack con) (zip conNames parsers) of
                           Just parser ->
                              parser
-                          f ->
-                             fail $ "Parsing failure. Didnt't find constructor for tag "
-                                   ++ show con ++ ". Only got " ++ show conNames
+                          f -> conLookupErr (show con) (show conNames)
     , readField =
           \ma ->
               do rest <- readOpen
@@ -183,7 +178,7 @@ stringParseFormat
                  return res
 
     , readRepetition =
-          readVersion pFormat >> readRepetition stringParseFormatUnvers
+          readVersion pFormat >> readRepetition pFormatUnvers
     , readInt =
           do str <- get
              let prim = filter (/=' ') str

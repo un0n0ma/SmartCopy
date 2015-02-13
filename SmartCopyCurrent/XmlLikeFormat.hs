@@ -28,9 +28,6 @@ import Control.Monad.State
 import Control.Monad.Writer
 
 
-sFormat = xmlLikeSerializationFormat
-pFormat = xmlLikeParseFormat
-
 --- Run functions, versioned and unversioned
 
 serializeSmart a = runSerialization (smartPut sFormat a)
@@ -40,20 +37,20 @@ parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (smartGet pFormat)
     where runParser action value = evalState (evalStateT (runFailT action) value) []
 
-serializeUnvers a = runSerialization (writeSmart xmlLikeSerializationFormatUnvers a)
+serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
     where runSerialization m = execWriter (runStateT m [])
 
 parseUnvers :: SmartCopy a => String -> Fail a
-parseUnvers = runParser (readSmart xmlLikeParseFormatUnvers)
+parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action value = evalState (evalStateT (runFailT action) value) []
 
 --- Xml-formats, unversioned and versioned
 
-xmlLikeSerializationFormatUnvers
+sFormatUnvers
     = sFormat
     { withVersion = const id
     , writeVersion = \_ -> return ()
-    , withRepetition =
+    , writeRepetition =
           \list ->
               forM_ (zip list (repeat "value")) $
               \el ->
@@ -63,22 +60,22 @@ xmlLikeSerializationFormatUnvers
     , writeMaybe =
           \m ->
             case m of
-              Just a -> writeSmart xmlLikeSerializationFormatUnvers a
+              Just a -> writeSmart sFormatUnvers a
               Nothing -> return ()
     }
 
-xmlLikeParseFormatUnvers
+pFormatUnvers
     = pFormat
     { readVersioned = id
     , readVersion = return $ Version 1
     , readMaybe =
-          liftM Just (readSmart xmlLikeParseFormatUnvers) <|>
+          liftM Just (readSmart pFormatUnvers) <|>
           do _ <- readClose; return Nothing
     }
     where delimit = L.span (/='<')
     
-xmlLikeSerializationFormat :: SerializationFormat (StateT [String] (Writer String))
-xmlLikeSerializationFormat
+sFormat :: SerializationFormat (StateT [String] (Writer String))
+sFormat
     = SerializationFormat
     { withVersion =
           \ver m -> writeVersion sFormat ver >> m
@@ -113,7 +110,7 @@ xmlLikeSerializationFormat
                           m
                           tell $ closeTag field
                    [] -> m
-    , withRepetition =
+    , writeRepetition =
           \list ->
               case length list of
                 0 -> return ()
@@ -157,8 +154,8 @@ xmlLikeSerializationFormat
     }
                 
 
-xmlLikeParseFormat :: ParseFormat (FailT (StateT String (State [String])))
-xmlLikeParseFormat
+pFormat :: ParseFormat (FailT (StateT String (State [String])))
+pFormat
     = ParseFormat
     { readVersioned = id
     , readVersion =
@@ -198,10 +195,8 @@ xmlLikeParseFormat
                                     res <- parser
                                     _ <- readCloseWith con
                                     return res
-                            f -> fail $
-                                 "Parsing failure. Didn't find \
-                                 \constructor for tag " ++ show con ++
-                                 ". Only found " ++ show conNames ++ "."
+                            _ -> conLookupErr (show con) (show conNames)
+
     , readField =
           \ma ->
               do str <- get
@@ -218,7 +213,7 @@ xmlLikeParseFormat
           do readVersion pFormat
              whileJust enterElemMaybe $
                  \_ ->
-                     do res <- readSmart xmlLikeParseFormat
+                     do res <- readSmart pFormat
                         _ <- readCloseWith "value"
                         return res
     , readInt =
