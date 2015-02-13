@@ -75,11 +75,10 @@ jsonSerializationFormat
           \ar ->
               case length ar of
                 0 -> return ()
-                n -> withVersion jsonSerializationFormat version $
-                     do accArray [] ar (writeSmart jsonSerializationFormat)
+                n -> do putter <- getSmartPut jsonSerializationFormat
+                        accArray [] ar putter
                         ar <- lift get
                         lift $ put $ arConcat ar
-                     where version = versionFromProxy (mkProxy $ head ar)
     }
 
 jsonParseFormat
@@ -92,22 +91,49 @@ jsonParseFormat
                 if M.member (T.pack "version") obj
                    then if M.member (T.pack "object") obj
                         then do let Just withoutVersion = M.lookup (T.pack "object") obj
-                                local (const withoutVersion) ma
+                                local (const $ withoutVersion) ma
                         else do let withoutVersion = M.delete (T.pack "version") obj
                                 local (const $ Json.Object withoutVersion) ma
-                   else mismatch "versioned JSON Value" (show obj)
+                   else ma
+             Json.Array ar ->
+                do wv <- forM (V.toList ar) withoutVersion
+                   local (const $ array wv) ma
              _ -> ma
-    , readVersion = return $ Version 0
+                
+    , readVersion =
+        do val <- ask
+           case val of
+             Json.Object obj -> getVersionFromObj obj
+             Json.Array ar ->
+                case V.length ar of
+                  0 -> mismatch "fields in array" (show val)
+                  _ -> do
+                      case V.head ar of
+                        Json.Object obj -> getVersionFromObj obj
+                        _ -> return $ Version 0
+             val -> return $ Version 0
     , readRepetition =
             do val <- ask
                case val of
                  Json.Array ar ->
                      forM (V.toList ar) (\el -> local (const el) (readSmart jsonParseFormat))
                  o@(Json.Object _) ->
-                     readVersioned jsonParseFormat $ readRepetition jsonParseFormat
+                     readVersioned jsonParseFormat $ readRepetition jsonParseFormatUnvers
                  _ -> mismatch "Array" (show val)
               
     }
+    where withoutVersion o@(Json.Object obj) =
+               if M.member (T.pack "version") obj
+                  then if M.member (T.pack "object") obj
+                       then return $ fromJust $ M.lookup (T.pack "object") obj
+                       else return $ Json.Object (M.delete (T.pack "version") obj)
+                  else return o
+          withoutVersion val = return val
+          getVersionFromObj obj =
+              if M.member (T.pack "version") obj
+                 then do let Just v@(Json.Number version) = M.lookup (T.pack "version") obj
+                         return $ Version $ floor version
+                 else return $ Version 0
 
 
 jsonSerializationFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
@@ -122,7 +148,7 @@ jsonSerializationFormatUnvers
                       lift $ put $ Json.String $ cname cons
                     NF 0 ->
                       lift $ put $ Json.object [("tag", Json.String $ cname cons),
-                                         ("contents", Json.Array V.empty)]
+                                                ("contents", Json.Array V.empty)]
                     NF i ->
                       do put $ Left $ Json.Array V.empty
                          _ <- ma
@@ -361,15 +387,7 @@ jsonParseFormatUnvers
                       Json.String s:xs -> return $ PrimString $ T.unpack s
                       _ -> mismatch "String" (show x)
              _ -> mismatch "String" (show x)
-    , readVersion =
-        do val <- ask
-           case val of
-             Json.Object obj ->
-                if M.member (T.pack "version") obj
-                   then do let Just v@(Json.Number version) = M.lookup (T.pack "version") obj
-                           return $ Version $ floor version
-                   else return $ Version 0
-             _ -> return $ Version 0
+    , readVersion = return $ Version 1
     }
     where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons

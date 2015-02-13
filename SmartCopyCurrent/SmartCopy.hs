@@ -45,6 +45,7 @@ class SmartCopy a where
     readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat m -> m a
 
 instance SmartCopy Int where
+    version = 0
     kind = primitive
     readSmart fmt =
         do prim <- readInt fmt
@@ -57,6 +58,7 @@ instance SmartCopy Int where
         writeInt fmt $ PrimInt i
 
 instance SmartCopy Int32 where
+    version = 0
     kind = primitive
     readSmart fmt =
         do prim <- readInt fmt
@@ -69,6 +71,7 @@ instance SmartCopy Int32 where
         writeInt fmt $ PrimInt $ fromIntegral i
 
 instance SmartCopy Char where
+    version = 0
     kind = primitive
     readSmart fmt =
         do prim <- readChar fmt
@@ -81,6 +84,7 @@ instance SmartCopy Char where
         writeChar fmt $ PrimChar c
 
 instance SmartCopy Double where
+    version = 0
     kind = primitive
     readSmart fmt = 
         do prim <- readDouble fmt
@@ -91,6 +95,7 @@ instance SmartCopy Double where
 
 
 instance SmartCopy String where
+    version = 0
     kind = primitive
     readSmart fmt =
         do prim <- readString fmt
@@ -103,6 +108,7 @@ instance SmartCopy String where
         writeString fmt $ PrimString s
 
 instance SmartCopy Bool where
+    version = 0
     kind = primitive
     readSmart fmt =
         do prim <- readBool fmt
@@ -318,7 +324,7 @@ constructGetterFromVersion fmt diskV origK =
           case thisK of
           --- */ TODO: add detailed error messages
             Primitive -> Left "Cannot migrate from primitive types."
-            Base -> Left "Version not found"
+            Base -> Left $ show thisV ++ " not found."
             Extends bProxy ->
                 do previousGetter <- worker fmt fwd (castVersion diskV) (kindFromProxy bProxy)
                    return $ fmap migrate previousGetter

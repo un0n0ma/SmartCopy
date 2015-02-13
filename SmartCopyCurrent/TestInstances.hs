@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module TestInstances where
 
@@ -113,24 +114,24 @@ instance B.Serialize BoolTest
 instance B.Serialize BoolTest'
 instance B.Serialize Easy
 
-instance SC.SafeCopy Bla
-instance SC.SafeCopy MyBool
-instance SC.SafeCopy Spam
-instance SC.SafeCopy Spam'
-instance SC.SafeCopy Some
-instance SC.SafeCopy Some'
-instance SC.SafeCopy Bar
-instance SC.SafeCopy Foo
-instance SC.SafeCopy FooBar
-instance SC.SafeCopy ArrType
-instance SC.SafeCopy ArrTypeBar
-instance SC.SafeCopy ArrTypeFooBar
-instance SC.SafeCopy MyDouble
-instance SC.SafeCopy StringTest
-instance SC.SafeCopy StringTest'
-instance SC.SafeCopy BoolTest
-instance SC.SafeCopy BoolTest'
-instance SC.SafeCopy Easy
+SC.deriveSafeCopy 1 'SC.base ''Bla
+SC.deriveSafeCopy 1 'SC.base ''MyBool
+SC.deriveSafeCopy 1 'SC.base ''Spam
+SC.deriveSafeCopy 1 'SC.base ''Spam'
+SC.deriveSafeCopy 1 'SC.base ''Some
+SC.deriveSafeCopy 1 'SC.base ''Some'
+SC.deriveSafeCopy 1 'SC.base ''Bar
+SC.deriveSafeCopy 1 'SC.base ''Foo
+SC.deriveSafeCopy 1 'SC.base ''FooBar
+SC.deriveSafeCopy 1 'SC.base ''ArrType
+SC.deriveSafeCopy 1 'SC.base ''ArrTypeBar
+SC.deriveSafeCopy 1 'SC.base ''ArrTypeFooBar
+SC.deriveSafeCopy 1 'SC.base ''MyDouble
+SC.deriveSafeCopy 1 'SC.base ''StringTest
+SC.deriveSafeCopy 1 'SC.base ''StringTest'
+SC.deriveSafeCopy 1 'SC.base ''BoolTest
+SC.deriveSafeCopy 1 'SC.base ''BoolTest'
+SC.deriveSafeCopy 1 'SC.base ''Easy
 
 
 ----------------------
@@ -149,6 +150,8 @@ instance SmartCopy MaybeTest where
                               withField fmt (smartPut fmt m)
            
 instance SmartCopy BoolTest where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "BoolTest" (NF 1) False 0 , readBool)]
         where readBool = do b :: Bool <- readField fmt $ smartGet fmt
@@ -157,6 +160,8 @@ instance SmartCopy BoolTest where
         withCons fmt (C "BoolTest" (NF 1) False 0) $ withField fmt (smartPut fmt b)
 
 instance SmartCopy BoolTest' where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "BoolTest'" (LF ["blist", "b", "slist"]) False 0, readBT)]
         where readBT = do blist <- readField fmt $ readRepetition fmt 
@@ -170,6 +175,8 @@ instance SmartCopy BoolTest' where
                withField fmt $ withRepetition fmt slist
 
 instance SmartCopy StringTest where
+    version = 1
+    kind = base 
     readSmart fmt =
         readCons fmt [(C "StringTest" (NF 1) False 0, readString)]
         where readString = do s :: String <- readField fmt $ smartGet fmt
@@ -190,6 +197,8 @@ instance SmartCopy StringTest' where
                                
 
 instance SmartCopy ArrType where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "ArrType" (NF 1) False 0, readInts)]
         where readInts = do ints <- readField fmt $ readRepetition fmt
@@ -201,6 +210,8 @@ instance SmartCopy ArrType where
                 withRepetition fmt ints
 
 instance SmartCopy ArrTypeBar where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "ArrTypeBar" (NF 1) False 0, readBars)]
         where readBars = do bars <- readField fmt $ readRepetition fmt
@@ -212,6 +223,8 @@ instance SmartCopy ArrTypeBar where
                 withRepetition fmt bars
 
 instance SmartCopy ArrTypeFooBar where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "ArrTypeFooBar" (NF 1) False 0, readFbars)]
         where readFbars =
@@ -223,6 +236,8 @@ instance SmartCopy ArrTypeFooBar where
                 withRepetition fmt fbars
 
 instance SmartCopy Foo where
+    version = 1
+    kind = base
     readSmart fmt =
       readCons fmt [(C "Foo" (NF 2) False 0, readFoo)]
       where readFoo =
@@ -236,6 +251,8 @@ instance SmartCopy Foo where
                                withField fmt (smartPut fmt bar)
 
 instance SmartCopy FooBar where
+    version = 1
+    kind = base
     readSmart fmt =
       readCons fmt [(C "Foo0" (NF 2) True 0, readFoo0),
                       (C "Bar0" (LF ["value", "foobar"])  True 1, readFoo1)]
@@ -261,6 +278,8 @@ instance SmartCopy FooBar where
                    withField fmt (smartPut fmt foobar)
 
 instance SmartCopy MyDouble where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "MyDouble" (NF 1) False 0, readMyDouble)]
         where readMyDouble = do d <- readField fmt $ smartGet fmt
@@ -270,6 +289,8 @@ instance SmartCopy MyDouble where
                                                      smartPut fmt d
 
 instance SmartCopy MyBool where
+    version = 1
+    kind = base
     readSmart fmt =
         readCons fmt [(C "MyTrue" Empty True 1, return MyTrue), (C "MyFalse" Empty True 0, return MyFalse)]
     writeSmart fmt MyTrue =
@@ -299,6 +320,8 @@ instance SmartCopy Bla where
         withCons fmt (C "Bla" Empty False 0) (return ())
 
 instance SmartCopy Bar where
+    version = 1
+    kind = base
     writeSmart fmt (BarLeft) =
         withCons fmt (C "BarLeft" (NF 0) True 0) (return ())
     writeSmart fmt x@(BarRight foo) =
@@ -312,6 +335,8 @@ instance SmartCopy Bar where
                                 return $ BarRight f 
 
 instance SmartCopy Some' where
+    version = 1
+    kind = base
     writeSmart fmt x@(Some' spam') =
         withCons fmt (C "Some'" (NF 1) False 0) $ withField fmt (smartPut fmt spam')
     readSmart fmt =
@@ -334,6 +359,8 @@ instance SmartCopy Some where
 
                              
 instance SmartCopy Spam where
+    version = 1
+    kind = base
     writeSmart fmt x@(Spam int) =
         withCons fmt (C "Spam" (NF 1) False 0) $ withField fmt $
                          smartPut fmt int
@@ -344,6 +371,8 @@ instance SmartCopy Spam where
                    return $ Spam i
 
 instance SmartCopy Spam' where
+    version = 1
+    kind = base
     writeSmart fmt x@(Spam' int1 int2) =
         withCons fmt (C "Spam'" (NF 2) False 0) writeFields
         where writeFields = 
@@ -414,7 +443,7 @@ maybetest2 = MaybeTest 23 Nothing
 ---- Json Values
 
 js1 :: Json.Value
-js1 = Json.Object $ M.fromList [("version", Json.Number 0), ("object" , Json.Number 3)]
+js1 = Json.Object $ M.fromList [("version", Json.Number 1), ("object" , Json.Number 3)]
 
 js2 :: Json.Value
 js2 = Json.Number 2.3
@@ -462,19 +491,20 @@ main = do args <- getArgs
             "json":_ ->
                 do putStrLn "PARSING JSON Values:"
                    liftIO $ print (J.parseSmart js1 :: Fail Easy)
-                   liftIO $ print (J.parseSmart js2 :: Fail MyDouble)
+                   liftIO $ print (J.parseUnversioned js2 :: Fail MyDouble)
                    liftIO $ print (J.parseUnversioned js3 :: Fail FooBar)
                    putStrLn "DATATYPES as JSON Values:"
+                   liftIO $ print (J.serializeSmart v6)
+                   liftIO $ print (J.serializeSmart some2)                   
+                   liftIO $ print (J.serializeSmart v5)
                    liftIO $ print (J.serializeSmart v3)
                    liftIO $ print (J.serializeSmart (MyDouble 23))
                    liftIO $ print (J.serializeSmart (Easy 42))
                    liftIO $ print (J.serializeSmart some1)
-                   liftIO $ print (J.serializeSmart some2)                   
                    liftIO $ print (J.serializeSmart v1)
                    liftIO $ print (J.serializeSmart v2)
                    liftIO $ print (J.serializeUnversioned v4)
                    liftIO $ print (J.serializeSmart v4)
-                   liftIO $ print (J.serializeSmart v6)
                    liftIO $ print (J.serializeSmart v7)
                    liftIO $ print (J.serializeSmart v8)
                    liftIO $ print (J.serializeSmart string)

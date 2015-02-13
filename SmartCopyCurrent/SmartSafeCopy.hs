@@ -48,8 +48,10 @@ safeCopySerializationFormat
     , writeVersion = S.put . unVersion
     , withCons =
           \cons ma ->
-              do putWord8 (fromIntegral $ cindex cons)
-                 ma
+              if ctagged cons
+              then do putWord8 (fromIntegral $ cindex cons)
+                      ma
+              else ma
     , withField = id
     , withRepetition =
           \lst ->
@@ -108,12 +110,17 @@ safeCopyParseFormat
         \cons ->
           case length cons of
             0 -> noCons
-            n -> do c <- getWord8
-                    let conInds = map (fromIntegral . cindex . fst) cons
-                        parsers = map snd cons
-                    fromMaybe (fail $ "Didn't find constructor with index "
-                                    ++ show c ++ ".")
-                              (lookup c (zip conInds parsers))
+            n -> 
+                if ctagged $ fst $ head cons
+                   then do c <- getWord8
+                           let conInds = map (fromIntegral . cindex . fst) cons
+                               parsers = map snd cons
+                           fromMaybe (mismatch ("constructor with index " ++ show c) (show conInds))
+                                     (lookup c (zip conInds parsers))
+                   else if n == 1
+                           then snd $ head cons
+                           else do let conNames = map (cname . fst) cons
+                                   mismatch "tagged type" (show conNames)
     , readField = id
     , readRepetition =
           do n <- S.get

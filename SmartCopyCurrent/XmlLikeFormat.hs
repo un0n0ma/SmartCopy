@@ -70,7 +70,7 @@ xmlLikeSerializationFormatUnvers
 xmlLikeParseFormatUnvers
     = pFormat
     { readVersioned = id
-    , readVersion = return $ Version 0
+    , readVersion = return $ Version 1
     , readMaybe =
           liftM Just (readSmart xmlLikeParseFormatUnvers) <|>
           do _ <- readClose; return Nothing

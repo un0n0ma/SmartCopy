@@ -64,7 +64,7 @@ stringSerializationFormatUnvers
 
 stringParseFormatUnvers
     = stringParseFormat
-    { readVersion = return $ Version 0
+    { readVersion = return $ Version 1
     , readRepetition =
           do str' <- get
              let str = filter (/=' ') str'

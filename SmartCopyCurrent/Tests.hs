@@ -105,6 +105,50 @@ tests_JSON_vers =
              do let sResult = J.serializeSmart Test.v8
                 pResult :: Test.ArrTypeFooBar <- fromOk $ J.parseSmart sResult
                 assertEqual "Serializing as versioned JSON Value" Test.v8 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.v1
+                pResult :: Test.Foo <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.v1 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.v2
+                pResult :: Test.Foo <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.v2 pResult
+        , TestCase $ --9
+             do let sResult = J.serializeSmart Test.some1
+                pResult :: Test.Some <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.some1 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.some2 --10
+                pResult :: Test.Some' <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.some2 pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.mybool
+                pResult :: Test.MyBool <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.mybool pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.mybool'
+                pResult :: Test.MyBool <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.mybool' pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.bar
+                pResult :: Test.Bar <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.bar pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.string
+                pResult :: Test.StringTest <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.string pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.string' --15
+                pResult :: Test.StringTest' <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.string' pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.booltest
+                pResult :: Test.BoolTest <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.booltest pResult
+        , TestCase $
+             do let sResult = J.serializeSmart Test.booltest'
+                pResult :: Test.BoolTest' <- fromOk $ J.parseSmart sResult
+                assertEqual "Serializing as versioned JSON Value" Test.booltest' pResult
         ]
 
 tests_JSON_unvers
@@ -727,7 +771,7 @@ tests_SafeCopy
                 assertEqual "Comparing serialized binary with SafeCopy" sResult1 sResult2
         , TestCase $ 
              do let sResult1 = SMC.serializeSmart (42 :: Int)
-                    sResult2 = B.runPut $ B.put (42 :: Int) -- why does safePut do this differently?
+                    sResult2 = B.runPut $ B.put (42 :: Int) -- why does safePut do this differently
                 assertEqual "Comparing serialized binary with SafeCopy" sResult1 sResult2
         , TestCase $ 
              do let sResult1 = SMC.serializeSmart Test.mybool
