@@ -15,305 +15,364 @@ import SmartCopy
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
 import qualified Data.List as L
+import qualified Data.Map as M
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Text.XML as X
+
 import Data.String.Utils
 
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
 import Control.Applicative
+import Control.Arrow
 import Control.Monad.Loops
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 
+import Data.Either (rights)
 
---- Run functions, versioned and unversioned
 
-serializeSmart a = runSerialization (smartPut sFormat a)
-    where runSerialization m = execWriter (runStateT m [])
+-------------------------------------------------------------------------------
+-- Run functions, versioned and unversioned
+-------------------------------------------------------------------------------
+
+serializeSmart a = TL.unpack $ X.renderText X.def $
+                   X.Document (X.Prologue [] Nothing [])
+                   (runSerialization (smartPut sFormat a)) []
+    where runSerialization m
+                = execState (evalStateT m []) emptyEl
 
 parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (smartGet pFormat)
-    where runParser action value = evalState (evalStateT (runFailT action) value) []
+    where runParser action value =
+              do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
+                 evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
 
-serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
-    where runSerialization m = execWriter (runStateT m [])
+serializeUnvers a = TL.unpack $ X.renderText X.def $
+                    X.Document (X.Prologue [] Nothing [])
+                    (runSerialization (writeSmart sFormatUnvers a)) []
+    where runSerialization m = execState (evalStateT m []) emptyEl
 
 parseUnvers :: SmartCopy a => String -> Fail a
 parseUnvers = runParser (readSmart pFormatUnvers)
-    where runParser action value = evalState (evalStateT (runFailT action) value) []
+    where runParser action value =
+              do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
+                 evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
 
---- Xml-formats, unversioned and versioned
+-------------------------------------------------------------------------------
+-- Xml serialization unversioned
+-------------------------------------------------------------------------------
 
 sFormatUnvers
     = sFormat
-    { withVersion = const id
-    , writeVersion = \_ -> return ()
+    { writeVersion = \_ -> return ()
+    , withVersion = const id
     , writeRepetition =
-          \list ->
-              forM_ (zip list (repeat "value")) $
-              \el ->
-                  do tell $ openTag $ snd el
-                     writeSmart sFormat $ fst el
-                     tell $ closeTag $ snd el
+          \ar ->
+              case length ar of
+                0 -> return ()
+                n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
+                        put $ replicate n (X.NodeElement value)
+                        forM_ ar $ \a -> do withField sFormatUnvers $ writeSmart sFormatUnvers a
+                                            field <- get
+                                            put field
+                        res <- get
+                        put res
+                        lift $ put $ X.Element (makeName "values") M.empty res
     , writeMaybe =
-          \m ->
-            case m of
-              Just a -> writeSmart sFormatUnvers a
-              Nothing -> return ()
+          \ma ->
+              case ma of
+                Just a ->
+                    writeSmart sFormatUnvers a
+                Nothing ->
+                    do put []
+                       return ()
     }
+
+
+-------------------------------------------------------------------------------
+-- Xml parsing unversioned
+-------------------------------------------------------------------------------
 
 pFormatUnvers
     = pFormat
     { readVersioned = id
-    , readVersion = return $ Version 1
+    , readVersion = return Nothing
+    , readRepetition =
+          do nodes <- lift $ lift $ lift get
+             replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
     , readMaybe =
-          liftM Just (readSmart pFormatUnvers) <|>
-          do _ <- readClose; return Nothing
+          do nodes <- lift $ lift $ lift get
+             case nodes of
+               [] -> mismatch "field nodes" (show nodes)
+               X.NodeElement el:xs ->
+                   case X.elementNodes el of
+                     [] -> return Nothing
+                     elNodes ->
+                         do put elNodes
+                            lift $ lift $ lift $ put xs
+                            liftM Just $ readSmart pFormatUnvers
+               _ -> mismatch "element node containing Maybe value" (show $ head nodes)
     }
-    where delimit = L.span (/='<')
+
     
-sFormat :: SerializationFormat (StateT [String] (Writer String))
+-------------------------------------------------------------------------------
+-- Xml serialization versioned
+-------------------------------------------------------------------------------
+
+sFormat :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormat
     = SerializationFormat
-    { withVersion =
-          \ver m -> writeVersion sFormat ver >> m
-    , writeVersion =
-          \ver -> tell $ "<?version=" ++ show (unVersion ver) ++ "?>"
+    { writeVersion =
+          \ver ->
+          do resEl <- lift get
+             let versEl = resEl
+                        { X.elementAttributes
+                        = M.insert (makeName (T.pack "version")) (T.pack $ show $ unVersion ver)
+                                   (X.elementAttributes resEl)}
+             lift $ put versEl
+    , withVersion =
+          \ver ma ->
+          do ma
+             writeVersion sFormat ver
     , withCons =
-          \cons m ->
-          do let conName = T.unpack $ cname cons
-             tell $ openTag conName
-             let fields
-                    = case cfields cons of
-                        NF 0 ->
-                            []
-                        NF i ->
-                            map show [0..i-1]
-                        LF ls ->
-                            map T.unpack ls
-             put fields
-             m
-             tell $ closeTag conName
+          \cons ma ->
+          do let fields =
+                      case cfields cons of
+                        Empty -> []
+                        NF i -> map (T.pack . show) [0..i-1]
+                        LF ls -> ls
+             let nodes = map makeEmptyNode fields
+             put nodes
+             ma
+             resNodes <- get
+             put [X.NodeElement $ X.Element (makeName $ cname cons) M.empty resNodes]
+             lift $ put $ X.Element (makeName $ cname cons) M.empty resNodes
     , withField =
-          \m ->
-              do fields <- get
-                 case fields of
-                   field:rest ->
-                       do tell $ openTag field
-                          m
-                          put rest
-                          tell $ closeTag field
-                   [field] ->
-                       do tell $ openTag field
-                          m
-                          tell $ closeTag field
-                   [] -> m
-    , writeRepetition =
-          \list ->
-              case length list of
-                0 -> return ()
-                n -> withVersion sFormat version $
-                     forM_ (zip list (repeat "value")) $
-                     \el ->
-                         do tell $ openTag $ snd el
-                            writeSmart sFormat $ fst el
-                            tell $ closeTag $ snd el
-                     where version = versionFromProxy (mkProxy $ head list)
+          \ma ->
+          do nodes <- get
+             case nodes of
+               [] -> return ()
+               x@(X.NodeElement elem):xs ->
+                   do lift $ put elem
+                      ma
+                      resVers <- lift get
+                      resNodes <- get
+                      let resElems = map (X.Element (X.elementName elem) (X.elementAttributes resVers)) [resNodes]
+                      let nodeEls = map X.NodeElement resElems
+                      put $ xs++nodeEls
+                      lift $ put $ X.Element (X.elementName resVers) (X.elementAttributes resVers) resNodes
+               _ -> mismatch "NodeElement" (show nodes)
     , writeInt =
           \prim ->
-            case prim of
-              PrimInt i -> tell $ show i
-              _         -> mismatch "Prim Int" (show prim)
-    , writeChar =
-          \prim ->
-            case prim of
-              PrimChar c -> tell "c"
-              _         -> mismatch "Prim Char" (show prim)
+              case prim of
+                PrimInt i ->
+                    put [X.NodeContent (T.pack $ show i)]
+                _ -> mismatch "Prim Int" (show prim)
     , writeString =
           \prim ->
-            case prim of
-              PrimString s -> tell s
-              _         -> mismatch "Prim String" (show prim)
-    , writeBool =
-          \prim ->
-            case prim of
-              PrimBool b -> tell $ show b
-              _         -> mismatch "Prim Bool" (show prim)
+              case prim of
+                PrimString s ->
+                    put [X.NodeContent (T.pack s)]
+                _ -> mismatch "Prim String" (show prim)
     , writeDouble =
           \prim ->
-            case prim of
-              PrimDouble d -> tell $ show d
-              _         -> mismatch "Prim Double" (show prim)
+              case prim of
+                PrimDouble d ->
+                    put [X.NodeContent (T.pack $ show d)]
+                _ -> mismatch "Prim Double" (show prim)
+    , writeBool =
+          \prim ->
+              case prim of
+                PrimBool b ->
+                    put [X.NodeContent (T.pack $ show b)]
+                _ -> mismatch "Prim Bool" (show prim)
+    , writeChar =
+          \prim ->
+              case prim of
+                PrimChar c ->
+                    put [X.NodeContent (T.pack $ show c)]
+                _ -> mismatch "Prim Char" (show prim)
+    , writeRepetition =
+          \ar ->
+              case length ar of
+                0 -> return ()
+                n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
+                        lift $ put value
+                        putter <- getSmartPut sFormat
+                        unversHead <- lift get
+                        put [X.NodeElement unversHead]
+                        withField sFormat $ putter (head ar)
+                        versHead <- get
+                        put $ replicate (n-1) (X.NodeElement value)
+                        forM_ (tail ar) $ \a -> do withField sFormat $ writeSmart sFormat a
+                                                   field <- get
+                                                   put field
+                        res <- get
+                        put $ versHead++res
+                        lift $ put $ X.Element (makeName "values") M.empty (versHead++res)
     , writeMaybe =
-          \m ->
-            case m of
-              Just a -> smartPut sFormat a
-              Nothing -> return ()
+          \ma ->
+              case ma of
+                Just a ->
+                    do putter <- getSmartPut sFormat
+                       putter a
+                Nothing ->
+                    do put []
+                       return ()
     }
-                
+    where makeEmptyNode text = X.NodeElement $ X.Element (makeName text) M.empty []
+                     
+-------------------------------------------------------------------------------
+-- Versioned parsing
+-------------------------------------------------------------------------------
 
-pFormat :: ParseFormat (FailT (StateT String (State [String])))
+pFormat :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))))
 pFormat
     = ParseFormat
     { readVersioned = id
     , readVersion =
-        do str' <- get
-           let str = filter (/=' ') str'
-           if startswith "<?version=" str
-              then do let (version, rest) = L.span (/='?') (drop 10 str)
-                      if startswith "?>" rest
-                         then 
-                           case reads version of
-                             [(int, [])] ->
-                                 do lift $ put $ drop 2 rest
-                                    return $ Version int
-                             [] -> mismatch "Int32" version
-                         else mismatch "closing tag for version" str
-              else do lift $ put str
-                      return $ Version 0
+          do nodeElems <- get
+             case length nodeElems of
+               0 -> return $ Just $ Version 0
+               n ->
+                   do let nodeElem = head nodeElems
+                      case nodeElem of
+                        X.NodeContent _ ->
+                            do put $ tail nodeElems
+                               return $ Just $ Version 0
+                        X.NodeElement el -> 
+                               do let attribs = map ((X.nameLocalName . fst) &&& snd)
+                                                (M.toList $ X.elementAttributes el)
+                                      vers = lookup (T.pack "version") attribs
+                                  case vers of
+                                    Just vText ->
+                                        case (reads . T.unpack) vText of
+                                          [(int,[])] ->
+                                              do put $ tail nodeElems
+                                                 return $ Just $ Version int
+                                          _ -> mismatch "int32 for version" (show vText)
+                                    Nothing ->
+                                        return $ Just $ Version 0
+                        _ -> mismatch "NodeContent or NodeElement" (show nodeElem)
     , readCons =
           \cons ->
-              do str <- get
-                 let conNames = map (T.unpack . cname . fst) cons
+              do elem <- lift $ lift get
+                 let conNames = map (cname . fst) cons
                      conFields = map (cfields . fst) cons
                      parsers = map snd cons
                  case length cons of
                    0 -> noCons
-                   _ ->
-                       do con <- readOpen
+                   _ -> 
+                       do let con = elName elem
                           case lookup con (zip conNames parsers) of
                             Just parser ->
-                                 do let Just cfields = lookup con (zip conNames conFields)
-                                        fields
-                                            = case cfields of
-                                                NF i -> map show [0..i-1]
-                                                LF lbs -> map T.unpack lbs
-                                    lift $ lift $ put fields
-                                    rest <- get
-                                    res <- parser
-                                    _ <- readCloseWith con
-                                    return res
+                                do lift $ lift $ lift $ put $ X.elementNodes elem
+                                   put $ X.elementNodes elem
+                                   parser
                             _ -> conLookupErr (show con) (show conNames)
 
     , readField =
           \ma ->
-              do str <- get
-                 fields <- lift $ lift get
-                 case fields of
+              do nodes <- lift $ lift $ lift get
+                 case nodes of
                    [] -> ma
-                   (x:xs) ->
-                       do _ <- readOpenWith x
-                          res <- ma
-                          _ <- readCloseWith x
-                          lift $ lift $ put xs
-                          return res
+                   (x:xs) -> 
+                       case x of
+                         X.NodeElement elem ->
+                             do case X.elementNodes elem of
+                                  [] -> return ()
+                                  [X.NodeContent _] ->
+                                      lift $ lift $ lift $ put $ X.elementNodes elem
+                                  [X.NodeElement elem'] ->
+                                      lift $ lift $ put elem'
+                                  nelems ->
+                                      lift $ lift $ lift $ put nelems
+                                res <- ma
+                                lift $ lift $ lift $ put xs
+                                return res
+                         _ ->
+                             mismatch "NodeElement" (show x)
     , readRepetition =
-          do readVersion pFormat
-             whileJust enterElemMaybe $
-                 \_ ->
-                     do res <- readSmart pFormat
-                        _ <- readCloseWith "value"
-                        return res
+          do nodes <- lift $ lift $ lift get
+             put nodes
+             getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
     , readInt =
-          do str' <- get
-             let str = filter (/=' ') str'
-             case reads str of
-               [(prim, rest)] ->
-                   do lift $ put rest
-                      return $ PrimInt prim
-               [] -> mismatch "Int" str
+          do nodes <- lift $ lift $ lift get
+             case length nodes of
+               0 -> mismatch "Int NodeContent" (show nodes)
+               n ->
+                   case head nodes of
+                     X.NodeContent t ->
+                         case reads (T.unpack t) of
+                           [(int, [])] -> return $ PrimInt int
+                           _ -> mismatch "Int" (show $ head nodes)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
     , readDouble =
-          do str' <- get
-             let str = filter (/=' ') str'
-             case reads str of
-               [(prim, rest)] ->
-                   do lift $ put rest
-                      return $ PrimDouble prim
-               [] -> mismatch "Double" str
+          do nodes <- lift $ lift $ lift get
+             case length nodes of
+               0 -> mismatch "Double NodeContent" (show nodes)
+               n ->
+                   case head nodes of
+                     X.NodeContent t ->
+                         case reads (T.unpack t) of
+                           [(double, [])] -> return $ PrimDouble double
+                           _ -> mismatch "Double" (show $ head nodes)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
     , readBool =
-          do str' <- get
-             let str = filter (/=' ') str'
-             case take 4 str of
-               "True" ->
-                   do lift $ put $ drop 4 str
-                      return $ PrimBool True
-               _ ->
-                  case take 5 str of
-                    "False" ->
-                         do lift $ put $ drop 5 str
-                            return $ PrimBool False
-                    _ -> mismatch "Bool" str
+          do nodes <- lift $ lift $ lift get
+             case length nodes of
+               0 -> mismatch "Bool NodeContent" (show nodes)
+               n ->
+                   case head nodes of
+                     X.NodeContent t
+                         | T.unpack t == "True" -> return $ PrimBool True
+                         | T.unpack t == "False" -> return $ PrimBool False
+                         | otherwise -> mismatch "Bool" (show t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
     , readString =
-          do str' <- get
-             let str = filter (/=' ') str'
-             do lift $ put $ snd $ delimit str
-                return $ PrimString $ fst $ delimit str
+          do nodes <- lift $ lift $ lift get
+             case length nodes of
+               0 -> mismatch "String NodeContent" (show nodes)
+               n ->
+                   case head nodes of
+                     X.NodeContent t ->
+                         return $ PrimString (T.unpack t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
     , readChar =
-          do str' <- get
-             let str = filter (/=' ') str'
-             case length str of
-               0 -> mismatch "Char" str
-               _ ->    
-                   do lift $ put $ tail str
-                      return $ PrimChar $ head str
+          do nodes <- lift $ lift $ lift get
+             case length nodes of
+               0 -> mismatch "Char NodeContent" (show nodes)
+               n ->
+                   case head nodes of
+                     X.NodeContent t ->
+                         if T.length t == 1
+                            then return $ PrimChar $ T.head t
+                            else mismatch "Char" (show t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
     , readMaybe =
-          liftM Just (smartGet pFormat) <|>
-          do _ <- readClose; return Nothing
+          do nodes <- lift $ lift $ lift get
+             case nodes of
+               [] -> mismatch "field nodes" (show nodes)
+               X.NodeElement el:xs ->
+                   case X.elementNodes el of
+                     [] -> return Nothing
+                     elNodes ->
+                         do put nodes
+                            lift $ lift $ lift $ put xs
+                            getSmartGet pFormat >>= liftM Just
+               _ -> mismatch "element node containing Maybe value" (show $ head nodes)
     }
-    where delimit = L.span (/='<')
 
-openTag s = "<" ++ s ++ ">"
-closeTag  s = "</" ++ s ++ ">"
-unwrap s 
-    | startswith "</" s && endswith ">" s = init $ drop 2 s
-    | startswith "<" s && endswith ">" s = init $ drop 1 s
-    | otherwise = s
 
-dropLast n xs = take (length xs - n) xs
+-------------------------------------------------------------------------------
+-- Helper functions
+-------------------------------------------------------------------------------
 
-readOpen :: FailT (StateT String (State [String])) String
-readOpen =
-    do str <- get
-       if isTagOpen str
-          then do let ('<':tag, '>':after)  = L.span (/='>') str
-                  put after
-                  return tag
-          else fail $ "Didn't find an opening tag at " ++ str ++ "."
-    where isTagOpen s = startswith "<" s && (not $ startswith "</" s)
-                 
-readClose :: FailT (StateT String (State [String])) String
-readClose =
-    do str <- get
-       if startswith "</" str
-          then do let (tag, '>':after) = L.span (/='>') str
-                  put after
-                  return tag
-          else fail $ "Didn't find a closing tag at " ++ str ++ "."
+emptyEl = X.Element (X.Name T.empty Nothing Nothing) M.empty []
+makeName t = X.Name t Nothing Nothing
+elName = X.nameLocalName . X.elementName
 
-readOpenWith :: String -> FailT (StateT String (State [String])) String
-readOpenWith s =
-    do str <- get
-       if startswith (openTag s) str
-          then do let (tag, '>':after) = L.span (/='>') str
-                  put after
-                  return ""
-          else fail $ "Didn't find an opening tag for " ++ s ++
-                      " at " ++ str ++ "."
-
-readCloseWith :: String -> FailT (StateT String (State [String])) String
-readCloseWith s =
-    do str <- get
-       if startswith (closeTag s) str
-          then do let (tag, '>':after) = L.span (/='>') str
-                  put after
-                  return ""
-          else fail $ "Didn't find a closing tag for " ++ s ++
-                      " at " ++ str ++ "."
-
-enterElemMaybe =
-    do str <- get
-       if startswith (openTag "value") str
-          then liftM Just (readOpenWith "value")
-          else return Nothing

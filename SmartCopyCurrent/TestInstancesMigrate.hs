@@ -61,15 +61,19 @@ instance SmartCopy EasyV2 where
         readCons fmt [(C "EasyV2" (NF 2) False 0, readEasy)]
         where
             readEasy =
-                do f1 <- readField fmt $ smartGet fmt
-                   f2 <- readField fmt $ smartGet fmt
+                do get1 <- getSmartGet fmt
+                   get2 <- getSmartGet fmt
+                   f1 <- readField fmt get1
+                   f2 <- readField fmt get2
                    return $ EasyV2 f1 f2
     writeSmart fmt (EasyV2 int string) =
         withCons fmt (C "EasyV2" (NF 2) False 0) writeFields
         where
             writeFields =
-                do withField fmt $ smartPut fmt int
-                   withField fmt $ smartPut fmt string
+                do put1 <- getSmartPut fmt
+                   put2 <- getSmartPut fmt
+                   withField fmt $ put1 int
+                   withField fmt $ put2 string
 
 instance SmartCopy SomeV2 where
     version = 2

@@ -45,9 +45,15 @@ class SmartCopy a where
     writeSmart :: Monad m => SerializationFormat m -> a -> m ()
     readSmart :: (Functor m, Applicative m, Monad m) => ParseFormat m -> m a
 
-instance SmartCopy Int where
-    version = 0
+instance SmartCopy a => SmartCopy (SC.Prim a) where
     kind = primitive
+    readSmart fmt =
+        do res <- readSmart fmt
+           return $ SC.Prim res
+    writeSmart fmt (SC.Prim a) =
+        writeSmart fmt a
+
+instance SmartCopy Int where
     readSmart fmt =
         do prim <- readInt fmt
            fromPrimInt prim
@@ -59,8 +65,6 @@ instance SmartCopy Int where
         writeInt fmt $ PrimInt i
 
 instance SmartCopy Int32 where
-    version = 0
-    kind = primitive
     readSmart fmt =
         do prim <- readInt fmt
            fromPrimInt prim
@@ -72,8 +76,6 @@ instance SmartCopy Int32 where
         writeInt fmt $ PrimInt $ fromIntegral i
 
 instance SmartCopy Char where
-    version = 0
-    kind = primitive
     readSmart fmt =
         do prim <- readChar fmt
            fromPrimChar prim
@@ -85,8 +87,6 @@ instance SmartCopy Char where
         writeChar fmt $ PrimChar c
 
 instance SmartCopy Double where
-    version = 0
-    kind = primitive
     readSmart fmt = 
         do prim <- readDouble fmt
            case prim of
@@ -96,8 +96,6 @@ instance SmartCopy Double where
 
 
 instance SmartCopy String where
-    version = 0
-    kind = primitive
     readSmart fmt =
         do prim <- readString fmt
            fromPrimString prim
@@ -109,8 +107,6 @@ instance SmartCopy String where
         writeString fmt $ PrimString s
 
 instance SmartCopy Bool where
-    version = 0
-    kind = primitive
     readSmart fmt =
         do prim <- readBool fmt
            fromPrimBool prim
@@ -126,8 +122,6 @@ instance SmartCopy a => SmartCopy (Maybe a) where
     writeSmart = writeMaybe
 
 instance SmartCopy a => SmartCopy [a] where
-    version = 0 --- version handling for lists is done in formats, so lists per se are primitives
-    kind = primitive
     readSmart = readRepetition
     writeSmart = writeRepetition
 
@@ -171,6 +165,7 @@ data SerializationFormat m
 data ParseFormat m
     = ParseFormat
     { readVersioned :: forall a. m a -> m a
+    , readVersion :: forall a. m (Maybe (Version a))
     , readCons :: forall a. [(Cons, m a)] -> m a
     , readField :: forall a. m a -> m a
     , readRepetition :: SmartCopy a => m [a]
@@ -180,7 +175,6 @@ data ParseFormat m
     , readDouble :: m Prim
     , readString :: m Prim
     , readMaybe :: SmartCopy a => m (Maybe a)
-    , readVersion :: forall a. m (Version a)
     }
 
 
@@ -192,13 +186,14 @@ mismatch :: Monad m => forall a. String -> String -> m a
 mismatch exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
 
 conLookupErr :: Monad m => forall a. String -> String -> m a
-conLookupErr exp list = fail $ concat $
-                             [ "Didn't find constructor tag ",
-                               exp, "in map ", list ]
+conLookupErr exp list = fail $ concat [ "Didn't find constructor tag "
+                                      , exp, " in list ", list ]
 
 noCons :: Monad m => forall a. m a
 noCons = fail "No constructor found during look-up."
 
+vNotFound :: String -> String
+vNotFound s = "Cannot find getter associated with version " ++ s ++ "."
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
@@ -208,7 +203,7 @@ data Cons
     { cname :: T.Text
     , cfields :: Fields
     , ctagged :: Bool
-    , cindex :: Int
+    , cindex :: Integer
     }
 
 data Fields = NF Int
@@ -254,6 +249,7 @@ getSmartPut fmt =
     case kindFromProxy proxy of
       Primitive -> return $ \a -> writeSmart fmt $ asProxyType a proxy
       _         -> do let ver = versionFromProxy proxy
+                      writeVersion fmt ver
                       return $ \a -> withVersion fmt ver $ writeSmart fmt $ asProxyType a proxy
     where proxy = Proxy :: Proxy a
 
@@ -264,10 +260,14 @@ getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ readSmart fmt
-      kind -> do v <- readVersion fmt :: m (Version a)
-                 case constructGetterFromVersion fmt v kind of
-                   Right getter -> return getter
-                   Left msg -> fail msg
+      kind -> do v <- readVersion fmt :: m (Maybe (Version a))
+                 case v of
+                   Just  v' ->
+                       case constructGetterFromVersion fmt v' kind of
+                         Right getter -> return getter
+                         Left msg -> fail msg
+                   Nothing ->
+                       return $ readSmart fmt
       where proxy = Proxy :: Proxy a
 
 
@@ -284,11 +284,13 @@ newtype Version a = Version { unVersion :: Int32 } deriving (Eq, Show)
 castVersion :: Version a -> Version b
 castVersion (Version a) = Version a
 
+newtype Reverse a = Reverse { unReverse :: a }
+
 data Kind a where
     Primitive :: Kind a
     Base :: Kind a
     Extends   :: Migrate a => Proxy (MigrateFrom a) -> Kind a
-    -- TODO: Add Extended
+    Extended  :: (Migrate (Reverse a)) => Kind a -> Kind a
 
 extension :: (SmartCopy a, Migrate a) => Kind a
 extension = Extends Proxy
@@ -334,13 +336,23 @@ constructGetterFromVersion fmt diskV origK =
         | version == thisV = return $ readVersioned fmt $ readSmart fmt
         | otherwise =
           case thisK of
-          --- */ TODO: add detailed error messages
             Primitive -> Left "Cannot migrate from primitive types."
-            Base -> Left $ show thisV ++ " not found."
+            Base -> Left $ vNotFound (show thisV)
             Extends bProxy ->
                 do previousGetter <- worker fmt fwd (castVersion diskV) (kindFromProxy bProxy)
                    return $ fmap migrate previousGetter
-                   -- TODO: add Extended
+            Extended{} | fwd -> Left $ vNotFound (show thisV)
+            Extended aKind ->
+                do let revProxy :: Proxy (MigrateFrom (Reverse a))
+                       revProxy = Proxy
+                       forwardGetter :: Either String (m a)
+                       forwardGetter = fmap (unReverse . migrate) <$>
+                                       worker fmt True (castVersion thisV) (kindFromProxy revProxy)
+                       previousGetter :: Either String (m a)
+                       previousGetter = worker fmt fwd (castVersion thisV) aKind
+                   case forwardGetter of
+                     Left{} -> previousGetter
+                     Right val -> Right val
 
 
 -- Consistency (from SafeCopy)

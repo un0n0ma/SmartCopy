@@ -30,26 +30,31 @@ import Control.Monad.Reader
 import Data.Maybe
 
 
-sFormat = safeCopySerializationFormat
-pFormat = safeCopyParseFormat
-
+-------------------------------------------------------------------------------
+-- Run functions, versioned and unversioned
+-------------------------------------------------------------------------------
 serializeSmart a = S.runPut $ smartPut sFormat a
 
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
 parseSmart = S.runGet $ smartGet pFormat
 
-safeCopySerializationFormat :: SerializationFormat PutM
-safeCopySerializationFormat
+serializeUnvers a = S.runPut $ writeSmart sFormatUnvers a
+
+parseUnvers :: SmartCopy a => BS.ByteString -> Either String a
+parseUnvers = S.runGet $ readSmart pFormatUnvers
+
+-------------------------------------------------------------------------------
+-- Versioned serialization
+-------------------------------------------------------------------------------
+sFormat :: SerializationFormat PutM
+sFormat
     = SerializationFormat
-    { withVersion =
-          \ver ma ->
-              do writeVersion sFormat ver  -- version is written after tag! 
-                 ma
+    { withVersion = const id
     , writeVersion = S.put . unVersion
     , withCons =
           \cons ma ->
               if ctagged cons
-              then do putWord8 (fromIntegral $ cindex cons)
+              then do S.putWord8 (fromIntegral $ cindex cons)
                       ma
               else ma
     , withField = id
@@ -101,26 +106,28 @@ safeCopySerializationFormat
                     S.put False
     }
     
-safeCopyParseFormat :: ParseFormat Get
-safeCopyParseFormat
+-------------------------------------------------------------------------------
+-- Versioned parsing
+-------------------------------------------------------------------------------
+pFormat :: ParseFormat Get
+pFormat
     = ParseFormat
     { readVersioned = id
-    , readVersion = liftM Version S.get
+    , readVersion = liftM (Just . Version) S.get
     , readCons =
         \cons ->
           case length cons of
             0 -> noCons
-            n -> 
-                if ctagged $ fst $ head cons
-                   then do c <- getWord8
-                           let conInds = map (fromIntegral . cindex . fst) cons
-                               parsers = map snd cons
-                           fromMaybe (mismatch ("constructor with index " ++ show c) (show conInds))
-                                     (lookup c (zip conInds parsers))
-                   else if n == 1
-                           then snd $ head cons
-                           else do let conNames = map (cname . fst) cons
-                                   mismatch "tagged type" (show conNames)
+            n | ctagged $ fst $ head cons ->
+                    do c <- S.getWord8
+                       let conInds = map (fromIntegral . cindex . fst) cons
+                           parsers = map snd cons
+                       fromMaybe (mismatch ("constructor with index " ++ show c) (show conInds))
+                             (lookup c (zip conInds parsers))
+              | n == 1 -> snd $ head cons
+              | otherwise ->
+                       do let conNames = map (cname . fst) cons
+                          mismatch "tagged type" (show conNames)
     , readField = id
     , readRepetition =
           do n <- S.get
@@ -142,6 +149,41 @@ safeCopyParseFormat
              return $ PrimString prim
     , readMaybe =
           do b <- S.get
-             if b then liftM Just $ smartGet safeCopyParseFormat
+             if b then liftM Just $ smartGet pFormat
+                  else return Nothing
+    }
+
+-------------------------------------------------------------------------------
+-- Unversioned serialization
+-------------------------------------------------------------------------------
+
+sFormatUnvers
+    = sFormat
+    { writeVersion = \_ -> return () 
+    , writeRepetition = putListOf (writeSmart sFormatUnvers)
+    , writeString =
+          \prim ->
+          case prim of
+            PrimString s -> writeRepetition sFormatUnvers s
+            _ -> mismatch "Prim string" (show prim)
+    , writeMaybe =
+          \m ->
+              case m of
+                Just a ->
+                    S.put True >> writeSmart sFormatUnvers a
+                Nothing ->
+                    S.put False
+    }
+
+pFormatUnvers
+    = pFormat
+    { readVersion = return Nothing
+    , readRepetition = getListOf (readSmart pFormatUnvers)
+    , readString =
+          do s <- readRepetition pFormatUnvers
+             return $ PrimString s
+    , readMaybe =
+          do b <- S.get
+             if b then liftM Just $ readSmart pFormatUnvers
                   else return Nothing
     }
