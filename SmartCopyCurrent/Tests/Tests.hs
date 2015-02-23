@@ -35,6 +35,7 @@ import qualified SmartCopy.Formats.XmlLikeFormat as X
                  , parseSmart
                  )
 import qualified Tests.TestInstances as Test
+import qualified Tests.TestInstancesDerived as GTest
 import qualified Tests.TestInstancesMigrate as TestV2
 
 -------------------------------------------------------------------------------
@@ -1025,6 +1026,34 @@ tests_SafeCopy
                             pResult2 pResult1
         ]
 
+tests_Generic
+      = TestList $
+        [ TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeUnvers Test.v5
+                    sResult2 = prettyHex $ SMC.serializeUnvers GTest.Bla
+                assertEqual "Comparing derived and manual instances: Binary" sResult2 sResult1
+        , TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeUnvers Test.some1
+                    sResult2 = prettyHex $ SMC.serializeUnvers GTest.some1
+                assertEqual "Comparing derived and manual instances: Binary" sResult2 sResult1
+        , TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeUnvers Test.some2
+                    sResult2 = prettyHex $ SMC.serializeUnvers GTest.some2
+                assertEqual "Comparing derived and manual instances: Binary" sResult2 sResult1
+        , TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeSmart Test.some1
+                    sResult2 = prettyHex $ SMC.serializeSmart GTest.some1
+                assertEqual "Comparing derived and manual instances: SafeCopy" sResult2 sResult1
+        , TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeSmart Test.some2
+                    sResult2 = prettyHex $ SMC.serializeSmart GTest.some2
+                assertEqual "Comparing derived and manual instances: SafeCopy" sResult2 sResult1
+        , TestCase $ 
+             do let sResult1 = prettyHex $ SMC.serializeSmart Test.v5
+                    sResult2 = prettyHex $ SMC.serializeSmart GTest.Bla
+                assertEqual "Comparing derived and manual instances: SafeCopy" sResult2 sResult1
+        ]
+
 msg a = "Failure: " ++ a
 
 
@@ -1039,6 +1068,7 @@ main = do args <- getArgs
             "xmlVers":_ -> runTestTT tests_Xml_vers
             "binary":_ -> runTestTT tests_Binary
             "sc":_ -> runTestTT tests_SafeCopy
+            "generic":_ -> runTestTT tests_Generic
             _ ->
                 do runTestTT tests_JSON_unvers
                    runTestTT tests_JSON_vers
@@ -1047,3 +1077,4 @@ main = do args <- getArgs
                    runTestTT tests_Xml_unvers
                    runTestTT tests_Xml_vers
                    runTestTT tests_SafeCopy
+                   runTestTT tests_Generic

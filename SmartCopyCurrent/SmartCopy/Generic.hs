@@ -1,5 +1,10 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -19,68 +24,77 @@ import qualified Data.Text as T
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
+import qualified Data.Proxy as P
+
 import Control.Applicative
 import Control.Monad (liftM)
+import Data.Data hiding (Proxy)
 import Data.Maybe
 import GHC.Generics
 import Generics.Deriving.ConNames
 
-getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
-getConNames = map T.pack . conNames
+-------------------------------------------------------------------------------
+-- Generic functions for versioned serializing/parsing
+-------------------------------------------------------------------------------
+gsmartPut :: (GSmartCopy f, Monad m, SmartCopy x)
+          => SerializationFormat m
+          -> f x
+          -> m ()
+gsmartPut fmt x =
+    do putter <- ggetSmartPut fmt
+       putter x
 
-getIndex :: (Generic a, ConNames (Rep a)) => a -> String -> Integer
-getIndex c name = toInteger $ fromJust $ L.elemIndex name (conNames c)
+ggetSmartPut :: forall f x m. (GSmartCopy f, Monad m)
+             => SerializationFormat m
+             -> m (f x -> m ())
+ggetSmartPut fmt =
+--    checkConsistency proxy $
+    case gkindFromProxy proxy of
+      Primitive -> return $ \a -> gwriteSmart fmt a
+      _         -> do let ver = castVersion (gversion :: Version (f x)) :: Version x
+                      writeVersion fmt ver
+                      return $ \a -> withVersion fmt ver $ gwriteSmart fmt $ P.asProxyTypeOf a proxy
+      where proxy = P.Proxy :: P.Proxy (f x)
 
-{-
-getFields :: (Constructor c, Selector s, Generic a)
-          => (M1 C c ((M1 S s f) :*: (M1 S s f)) a)
-          -> Fields
-getFields = case selName (undefined :: M1 S s f) of
-              "" -> NF 1
-              _ -> 
-              -}
 
-multipleConstructors :: (Generic a, ConNames (Rep a)) => a -> Bool
-multipleConstructors = (> 1) . length . conNames
+-------------------------------------------------------------------------------
+-- Rep instances
+-------------------------------------------------------------------------------
 
 instance GSmartCopy U1 where
-    gwriteSmart fmt = \_ -> return ()
+    gwriteSmart fmt _ = return ()
     greadSmart fmt = return U1
 
-instance Constructor c => GSmartCopy (M1 C c U1) where
-    gwriteSmart fmt (M1 a)
-        = withCons fmt cons $ gwriteSmart fmt a
-          where cons = C (T.pack $ conName (undefined :: M1 C c U1 f)) Empty
-                         (multipleConstructors (M1 a))
-                         (getIndex (M1 a) (conName (undefined :: M1 C c f p)))
-    greadSmart fmt
-        = readCons fmt (zip cons (repeat $ return (undefined :: M1 C c U1 p)))
-          where cons = map (\(name, index) ->
-                       C name (NF 0) (multipleConstructors (undefined :: M1 C c f p))
-                       index) $
-                       zip (map T.pack $ conNames (undefined :: M1 C c f p)) [0..]
-                       {-
+instance (Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
+    gwriteSmart fmt (M1 x) = gwriteSmart fmt x
+    greadSmart fmt = M1 <$> greadSmart fmt
 
-instance (Constructor c, Selector s1, Selector s2, GSmartCopy f) =>
-         GSmartCopy (M1 C c ((M1 S s1 f) :*: (M1 S s2 f))) where
-    gwriteSmart fmt (M1 (C c (a :*: b)))
-        = let fields = case selName (undefined :: M1 S s1 f p) of
-                         "" -> NF 1
-                         string -> LF [T.pack string]
-              cons = C (T.pack $ conName (undefined :: M1 C c (a :*: b) p)) fields
-                       (multipleConstructors (M1 a))
-                       (getIndex (M1 a) (conName (undefined :: M1 C c (a :*: b) p)))
-          in withCons fmt cons $
-                 do gwriteSmart fmt a
-                    gwriteSmart fmt b
-                    -}
+instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
+    gwriteSmart fmt con@(M1 x)
+        = let fields = getFields $ selectors (P.Proxy :: P.Proxy (M1 C c f))
+              cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
+                       (multipleConstructors con)
+                       (getIndex con (conName (undefined :: M1 C c f p)))
+          in withCons fmt cons $ gwriteSmart fmt x
+    greadSmart fmt = undefined
 
+instance (Constructor c, Selector s, GSmartCopy f)
+         => GSmartCopy (M1 C c (M1 S s f)) where
+    gwriteSmart fmt con@(M1 x)
+        = let fields = getFields $ selectors (P.Proxy :: P.Proxy (M1 C c (M1 S s f)))
+              cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
+                       (multipleConstructors con)
+                       (getIndex con (conName (undefined :: M1 C c f p)))
+          in withCons fmt cons $ do putter <- ggetSmartPut fmt
+                                    withField fmt $ putter x
 
 instance (Selector s, GSmartCopy f) => GSmartCopy (M1 S s f) where
-    gwriteSmart fmt (M1 a) = withField fmt $ gwriteSmart fmt a
+    gwriteSmart fmt (M1 a) = do putter <- ggetSmartPut fmt
+                                withField fmt $ putter a
     greadSmart fmt = readField fmt $ greadSmart fmt
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
+    gversion = castVersion (versionFromProxy (Proxy :: Proxy c))
     gwriteSmart fmt (K1 a) = writeSmart fmt a
     greadSmart fmt = liftM K1 (readSmart fmt)
 
@@ -91,6 +105,57 @@ instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :+: b) where
                         <|> R1 <$> greadSmart fmt
 
 instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :*: b) where
-    gwriteSmart fmt (a :*: b) = do withField fmt $ gwriteSmart fmt a
-                                   withField fmt $ gwriteSmart fmt b
-    greadSmart fmt = (:*:) <$> (readField fmt $ greadSmart fmt) <*> (readField fmt $ greadSmart fmt)
+    gwriteSmart fmt (a :*: b) = do putterA <- ggetSmartPut fmt
+                                   putterB <- ggetSmartPut fmt
+                                   withField fmt (putterA a)
+                                   withField fmt (putterB b)
+    greadSmart fmt = (:*:) <$> readField fmt (greadSmart fmt) <*> readField fmt (greadSmart fmt)
+
+-------------------------------------------------------------------------------
+-- Helper functions for Reps
+-------------------------------------------------------------------------------
+gkindFromProxy :: (GSmartCopy f) => P.Proxy (f x) -> Kind (f x)
+gkindFromProxy _ = gkind
+
+-------------------------------------------------------------------------------
+-- Helper functions/types for accessing selector and constructor information
+-------------------------------------------------------------------------------
+
+class Selectors (rep :: * -> *) where
+    selectors :: P.Proxy rep -> [String] ---- TODO: Add indizes for sumtypes
+
+instance Selectors f => Selectors (M1 C c f) where
+    selectors _ = selectors (P.Proxy :: P.Proxy f)
+
+instance (Selectors a, Selectors b) => Selectors (a :+: b) where
+    selectors _ = undefined --- Fix
+
+instance Selector s => Selectors (M1 S s (K1 R t)) where
+    selectors _ =
+        [selName (undefined :: M1 S s (K1 R t) ())]
+
+instance Selector s => Selectors (M1 S s f) where
+    selectors _ =
+        [selName (undefined :: M1 S s f x)]
+
+instance (Selectors a, Selectors b) => Selectors (a :*: b) where
+    selectors _ = selectors (P.Proxy :: P.Proxy a) ++ selectors (P.Proxy :: P.Proxy b)
+
+instance Selectors U1 where
+    selectors _ = []
+
+getFields :: [String] -> Fields
+getFields [] = Empty
+getFields sels@(x:xs)
+    = case x of
+        "" -> NF (length sels)
+        string -> LF $ map T.pack sels
+    
+getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
+getConNames = map T.pack . conNames
+
+getIndex :: (Generic a, ConNames (Rep a)) => a -> String -> Integer
+getIndex c name = toInteger $ fromJust $ L.elemIndex name (conNames c)
+
+multipleConstructors :: (Generic a, ConNames (Rep a)) => a -> Bool
+multipleConstructors = (> 1) . length . conNames

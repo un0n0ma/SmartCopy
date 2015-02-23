@@ -9,6 +9,7 @@ module Tests.TestInstances where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
+import SmartCopy.Instances
 import SmartCopy.MonadTypesInstances
 import SmartCopy.SmartCopy
 
@@ -454,6 +455,7 @@ v2 = Foo 42 (BarRight (Foo 41 BarLeft))
 
 v3 :: FooBar
 v3 = Foo0 MyTrue (MyDouble 42.0) 
+v3' = Foo0 MyFalse (MyDouble 42.0) 
 
 v4 :: FooBar
 v4 = Bar0 23 v3

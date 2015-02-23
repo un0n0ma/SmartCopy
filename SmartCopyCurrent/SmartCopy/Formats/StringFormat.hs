@@ -13,6 +13,7 @@ where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
+import SmartCopy.Instances
 import SmartCopy.MonadTypesInstances
 import SmartCopy.SmartCopy
 

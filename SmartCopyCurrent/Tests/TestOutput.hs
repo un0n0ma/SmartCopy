@@ -29,6 +29,7 @@ import qualified SmartCopy.Formats.SafeCopy as SMC
                , parseUnvers
                )
 import qualified Tests.TestInstances as Test
+import qualified Tests.TestInstancesDerived as GTest
 
 import SmartCopy.MonadTypesInstances
 import SmartCopy.SmartCopy
@@ -83,6 +84,10 @@ main = do args <- getArgs
                    print (J.serializeUnvers Test.bar)
                    print (J.serializeUnvers Test.maybetest1)
                    print (J.serializeUnvers Test.maybetest2)
+                   putStrLn "SERIALIZING JSON WITH DERIVED INSTANCES:"
+                   print (J.serializeUnvers GTest.Bla)
+                   print (J.serializeUnvers GTest.some1)
+                   print (J.serializeUnvers GTest.some2)
                    putStrLn "PARSING JSON VALUES:"
                    print (J.parseSmart Test.js1 :: Fail Test.Easy)
                    print (J.parseUnvers Test.js2 :: Fail Test.MyDouble)
@@ -151,10 +156,16 @@ main = do args <- getArgs
                    print (X.parseUnvers Test.xml5 :: Fail Test.Some2)
             "safecopy":_ ->
                 do putStrLn "DATATYPES SAFECOPY-ENCODED:"
+                   print $ prettyHex $ SMC.serializeSmart Test.mybool
+                   print $ prettyHex $ SMC.serializeSmart Test.mybool'
+                   print $ prettyHex $ SMC.serializeSmart Test.bar
                    print $ prettyHex $ SMC.serializeSmart Test.v1
                    print $ prettyHex $ SMC.serializeSmart Test.v2
                    print $ prettyHex $ SMC.serializeSmart Test.v3
+                   print $ prettyHex $ SMC.serializeSmart Test.v3'
+                   print $ prettyHex $ SMC.serializeSmart (42.0 :: Double)
                    print $ prettyHex $ SMC.serializeSmart Test.v4
+                   print $ prettyHex $ SMC.serializeSmart (23 :: Int)
                    print $ prettyHex $ SMC.serializeSmart Test.v5
                    print $ prettyHex $ SMC.serializeSmart Test.v6
                    print $ prettyHex $ SMC.serializeSmart Test.v7

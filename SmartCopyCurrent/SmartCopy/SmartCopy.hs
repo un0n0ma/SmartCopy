@@ -1,8 +1,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
@@ -28,8 +26,14 @@ module SmartCopy.SmartCopy
        , Fields (..)
        , base
        , extension
+       , primitive
        , Prim (..)
        , Version (..)
+       , Kind (..)
+       , Proxy (..)
+       , asProxyType
+       , versionFromProxy
+       , castVersion
        )
 where
 
@@ -44,7 +48,7 @@ import SmartCopy.MonadTypesInstances
 import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as S
 
-import Data.Int
+import Data.Int (Int32)
 import Data.List (nub)
 import Data.Text.Internal as T
 
@@ -62,7 +66,8 @@ import GHC.Generics
 
 class SmartCopy a where
     version :: Version a
-    version = Version 0
+    default version :: (Generic a, GSmartCopy (Rep a)) => Version a
+    version = castVersion (gversion :: Version (Rep a x))
     kind :: Kind a
     kind = Base
     writeSmart :: Monad m => SerializationFormat m -> a -> m ()
@@ -74,106 +79,15 @@ class SmartCopy a where
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
                       => ParseFormat m -> m a
 
+
 class GSmartCopy t where
+    gversion :: Version (t x)
+    gversion = Version 0
+    gkind :: Kind (t x)
+    gkind = Base
     gwriteSmart :: Monad m => SerializationFormat m -> t x -> m ()
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m) => ParseFormat m -> m (t x)
 
-instance SmartCopy a => SmartCopy (SC.Prim a) where
-    kind = primitive
-    readSmart fmt =
-        do res <- readSmart fmt
-           return $ SC.Prim res
-    writeSmart fmt (SC.Prim a) =
-        writeSmart fmt a
-
-instance SmartCopy Int where
-    readSmart fmt =
-        do prim <- readInt fmt
-           fromPrimInt prim
-        where fromPrimInt prim =
-                  case prim of
-                    PrimInt i -> return i
-                    f         -> mismatch "int prim" (show f)
-    writeSmart fmt i =
-        writeInt fmt $ PrimInt i
-
-instance SmartCopy Int32 where
-    readSmart fmt =
-        do prim <- readInt fmt
-           fromPrimInt prim
-        where fromPrimInt prim =
-                  case prim of
-                    PrimInt i -> return $ fromIntegral i
-                    f         -> mismatch "int prim" (show f)
-    writeSmart fmt i =
-        writeInt fmt $ PrimInt $ fromIntegral i
-
-instance SmartCopy Char where
-    readSmart fmt =
-        do prim <- readChar fmt
-           fromPrimChar prim
-        where fromPrimChar prim =
-                  case prim of
-                    PrimChar c -> return c
-                    f         -> mismatch "Char prim" (show f)
-    writeSmart fmt c =
-        writeChar fmt $ PrimChar c
-
-instance SmartCopy Double where
-    readSmart fmt = 
-        do prim <- readDouble fmt
-           case prim of
-             PrimDouble d -> return d
-             f         -> mismatch "Double prim" (show f)
-    writeSmart fmt d = writeDouble fmt (PrimDouble d)
-
-
-instance SmartCopy String where
-    readSmart fmt =
-        do prim <- readString fmt
-           fromPrimString prim
-        where fromPrimString prim =
-                  case prim of
-                    PrimString s -> return s
-                    f         -> mismatch "String prim" (show f)
-    writeSmart fmt s =
-        writeString fmt $ PrimString s
-
-instance SmartCopy Bool where
-    readSmart fmt =
-        do prim <- readBool fmt
-           fromPrimBool prim
-        where fromPrimBool prim =
-                  case prim of
-                    PrimBool b -> return b
-                    f         -> mismatch "Bool prim" (show f)
-    writeSmart fmt b =
-        writeBool fmt $ PrimBool b
-
-instance SmartCopy a => SmartCopy (Maybe a) where
-    readSmart = readMaybe
-    writeSmart = writeMaybe
-
-instance SmartCopy a => SmartCopy [a] where
-    readSmart = readRepetition
-    writeSmart = writeRepetition
-
-instance (SmartCopy a, SmartCopy b) => SmartCopy (a, b) where
-    readSmart fmt = liftM2 (,) (readSmart fmt) (readSmart fmt)
-    writeSmart fmt (a, b) = writeSmart fmt a >> writeSmart fmt b
-
-instance S.Serialize (Version a) where
-    get = liftM Version S.get
-    put = S.put . unVersion
-
-instance Num (Version a) where
-    Version a + Version b = Version (a+b)
-    Version a * Version b = Version (a*b)
-    Version a - Version b = Version (a-b)
-    negate (Version a) = Version (negate a)
-    abs (Version a) = Version (abs a)
-    signum (Version a) = Version (signum a)
-    fromInteger i = Version (fromInteger i)
 
 -------------------------------------------------------------------------------
 -- Format records
@@ -281,7 +195,7 @@ getSmartPut fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ \a -> writeSmart fmt $ asProxyType a proxy
-      _         -> do let ver = versionFromProxy proxy
+      _         -> do let ver = version :: Version a
                       writeVersion fmt ver
                       return $ \a -> withVersion fmt ver $ writeSmart fmt $ asProxyType a proxy
     where proxy = Proxy :: Proxy a
@@ -314,6 +228,19 @@ class SmartCopy (MigrateFrom a) => Migrate a where
 
 newtype Version a = Version { unVersion :: Int32 } deriving (Eq, Show)
 
+instance S.Serialize (Version a) where
+    get = liftM Version S.get
+    put = S.put . unVersion
+
+instance Num (Version a) where
+    Version a + Version b = Version (a+b)
+    Version a * Version b = Version (a*b)
+    Version a - Version b = Version (a-b)
+    negate (Version a) = Version (negate a)
+    abs (Version a) = Version (abs a)
+    signum (Version a) = Version (signum a)
+    fromInteger i = Version (fromInteger i)
+
 castVersion :: Version a -> Version b
 castVersion (Version a) = Version a
 
@@ -336,11 +263,11 @@ primitive = Primitive
 
 data Proxy a = Proxy
 
-versionFromProxy :: SmartCopy a => Proxy a -> Version a
-versionFromProxy _ = version
-
 versionFromKind :: SmartCopy a => Kind a -> Version a
 versionFromKind _ = version
+
+versionFromProxy :: SmartCopy a => Proxy a -> Version a
+versionFromProxy _ = version
 
 kindFromProxy :: SmartCopy a => Proxy a -> Kind a
 kindFromProxy _ = kind
