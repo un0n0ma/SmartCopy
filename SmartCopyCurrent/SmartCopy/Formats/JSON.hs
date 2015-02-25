@@ -1,13 +1,15 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE TypeOperators #-}
 
 module SmartCopy.Formats.JSON
        ( serializeSmart
        , parseSmart
        , serializeUnvers
        , parseUnvers
-       , encode
+       , encodeUnvers
+       , encodeSmart
        )
 where
 
@@ -46,9 +48,11 @@ import Control.Arrow (first)
 import Data.Maybe
 
 
-encode :: Json.Value -> LBS.ByteString
-encode = encodeUtf8 . toLazyText . encodeToTextBuilder
+encodeUnvers :: SmartCopy a => a -> LBS.ByteString
+encodeUnvers = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeUnvers
 
+encodeSmart :: SmartCopy a => a -> LBS.ByteString
+encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
 -------------------------------------------------------------------------------
 --  Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
@@ -141,14 +145,11 @@ sFormat
     , writeRepetition =
           \ar ->
               case length ar of
-                0 -> return ()
-                1 -> do putter <- getSmartPut sFormat
-                        putter (head ar)
+                0 -> lift $ put $ array []
+                1 -> do smartPut sFormat (head ar)
                         ar <- lift get
                         lift $ put $ array [ar]
-                n -> do putter <- getSmartPut sFormat
-                        putter (head ar)
-                        accArray [] ar (writeSmart sFormat)
+                n -> do accArray [] ar (writeSmart sFormat)
                         ar <- lift get
                         lift $ put $ arConcat ar
     , writeMaybe =
@@ -206,7 +207,7 @@ pFormat
                               mismatch ("field with index "++T.unpack lastV) (show o)
              a@(Json.Array ar) ->
                 case V.length ar of
-                  0 -> fail $ show a --return $ Just $ Version 0. Fix this!!
+                  0 -> return $ Just $ Version 0 --- Fix this!!
                   n -> do let lastV = case prevVersions of
                                         [] -> 0
                                         xs -> last xs
@@ -500,7 +501,7 @@ sFormatUnvers
     , writeRepetition =
           \ar ->
               case length ar of
-                0 -> return ()
+                0 -> lift $ put $ array []
                 1 ->
                     do writeSmart sFormatUnvers (head ar)
                        el <- lift get
@@ -600,8 +601,7 @@ pFormatUnvers
                               NF 1 ->
                                   do let parser = snd $ head cons
                                      local (const otherPrim) parser
-                              _      -> fail "Parsing failure. Was expecting\ 
-                                             \ a single-field constructor."
+                              _      -> mismatch "single-field constructor" (show otherPrim)
                  _ ->
                     case val of
                       Json.Object obj ->

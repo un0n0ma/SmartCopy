@@ -463,8 +463,11 @@ v4 = Bar0 23 v3
 v5 :: Bla
 v5 = Bla
 
-v6 :: ArrType
-v6 = ArrType [1,2,3,4]
+v6a :: ArrType
+v6a = ArrType []
+
+v6b :: ArrType
+v6b = ArrType [1,2,3,4]
 
 v7 :: ArrTypeBar
 v7 = ArrTypeBar [BarRight v1, BarLeft, BarRight v1]
@@ -523,18 +526,17 @@ s3 = "Bar0 (23) (Foo0 (MyTrue) (MyDouble (42.0)))"
 
 s4 = "ArrType ([1,2,3,4])"
 
-s5 = "ArrTypeBar ([BarLeft, BarLeft])"
+s5 = "ArrTypeBar ([BarLeft,BarLeft])"
 
-s6 = "ArrTypeBar ([BarRight (Foo (43) (BarLeft)), BarLeft])"
+s6 = "ArrTypeBar ([BarRight (Foo (43) (BarLeft)),BarLeft])"
 s6parsed = ArrTypeBar [BarRight (Foo 43 BarLeft), BarLeft]
 
-s7 = "ArrTypeFooBar ([Foo0 (MyFalse) (MyDouble (32.1)), Bar0 (3) \
-      \ (Foo0 (MyTrue) (MyDouble (1.0)))])"
+s7 = "ArrTypeFooBar ([Foo0 (MyFalse) (MyDouble (32.1)),Bar0 (3) (Foo0 (MyTrue) (MyDouble (1.0)))])"
 
 ---- Xml-like encoding
 
-xml1 = "<?xmlversion=\"1.0\"encoding=\"UTF-8\"?><Easy><0>42</0></Easy>"
-xml2 = "<?xmlversion=\"1.0\"encoding=\"UTF-8\"?><Foo0><0><MyTrue/></0><1><MyDouble><0>42.0</0></MyDouble></1></Foo0>"
-xml3 = "<?xmlversion=\"1.0\"encoding=\"UTF-8\"?><Bla/>"
-xml4 = "<?xmlversion=\"1.0\"encoding=\"UTF-8\"?><Some><0><Spam><0>1</0></Spam></0><1>2</1></Some>"
-xml5 = "<?xmlversion=\"1.0\"encoding=\"UTF-8\"?><Some2><0><Spam2><0>1</0><1>2</1></Spam2></0></Some2>"
+xml1 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Easy><0>42</0></Easy>"
+xml2 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Foo0><0><MyTrue/></0><1><MyDouble><0>42.0</0></MyDouble></1></Foo0>"
+xml3 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Bla/>"
+xml4 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some><0><Spam><0>1</0></Spam></0><1>2</1></Some>"
+xml5 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some2><0><Spam2><0>1</0><1>2</1></Spam2></0></Some2>"

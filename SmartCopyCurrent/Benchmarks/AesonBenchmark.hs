@@ -13,11 +13,10 @@ import qualified Tests.TestInstancesMigrate as TestV2
 import qualified Data.Aeson as Aeson
 
 import Criterion.Main
-import Criterion.Main.Options
 import Criterion.Monad
 import Criterion.Types
 
-main = defaultMainWith config
+main = defaultMain
      [ bgroup "serialize unvers nested: Some (Spam Int Int)"
        [ bench "smartC-JSON" (whnf J.serializeUnvers Test.some2)
        , bench "Aeson" (whnf Aeson.toJSON Test.some2)
@@ -43,8 +42,8 @@ main = defaultMainWith config
        , bench "Aeson" (whnf Aeson.toJSON ([1,2,3,4] :: [Int]))
        ]
      , bgroup "serialize Array types"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.v6)
-       , bench "Aeson" (whnf Aeson.toJSON Test.v6)
+       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.v6a)
+       , bench "Aeson" (whnf Aeson.toJSON Test.v6a)
        , bench "smartC-JSON" (whnf J.serializeUnvers Test.v7)
        , bench "Aeson" (whnf Aeson.toJSON Test.v7)
        , bench "smartC-JSON" (whnf J.serializeUnvers Test.v8)
@@ -57,5 +56,3 @@ main = defaultMainWith config
        , bench "Aeson" (whnf Aeson.toJSON Test.booltest')
        ]
      ]
-     where config = defaultConfig
-                  { csvFile = Just "AesonBenchmark.csv" }

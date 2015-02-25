@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
 
 module SmartCopy.Formats.XmlLikeFormat
        ( serializeUnvers
@@ -27,17 +27,18 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Text.XML as X
 
-import Data.String.Utils
+import Data.String.UTF8 hiding (length)
 
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
+import "mtl" Control.Monad.Writer
+
 import Control.Applicative
 import Control.Arrow
 import Control.Monad.Loops
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Writer
 
 import Data.Either (rights)
 
@@ -79,16 +80,19 @@ sFormatUnvers
     , withVersion = const id
     , writeRepetition =
           \ar ->
-              case length ar of
-                0 -> return ()
-                n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
-                        put $ replicate n (X.NodeElement value)
-                        forM_ ar $ \a -> do withField sFormatUnvers $ writeSmart sFormatUnvers a
-                                            field <- get
-                                            put field
-                        res <- get
-                        put res
-                        lift $ put $ X.Element (makeName "values") M.empty res
+              do let value = X.Element (makeName (T.pack "value")) M.empty []
+                 case length ar of
+                   0 -> do put [X.NodeElement value]
+                           lift $ put $ X.Element (makeName "PrimList") M.empty []
+                           return ()
+                   n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
+                           put $ replicate n (X.NodeElement value)
+                           forM_ ar $ \a -> do withField sFormatUnvers $ writeSmart sFormatUnvers a
+                                               field <- get
+                                               put field
+                           res <- get
+                           put res
+                           lift $ put $ X.Element (makeName "PrimList") M.empty res
     , writeMaybe =
           \ma ->
               case ma of
@@ -110,7 +114,16 @@ pFormatUnvers
     , readVersion = return Nothing
     , readRepetition =
           do nodes <- lift $ lift $ lift get
-             replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
+             el' <- lift $ lift get
+             case length nodes of
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimList" _ _) _ nodes' ->
+                         do lift $ lift $ lift $ put nodes'
+                            replicateM (length nodes') (readField pFormatUnvers $
+                                readSmart pFormatUnvers)
+                     _ -> mismatch "primitive list at top-level" (show el')
+               n -> replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
@@ -177,56 +190,71 @@ sFormat
           \prim ->
               case prim of
                 PrimInt i ->
-                    put [X.NodeContent (T.pack $ show i)]
+                    do let resNodes = [X.NodeContent (T.pack $ show i)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimInt") M.empty resNodes
                 _ -> mismatch "Prim Int" (show prim)
     , writeInteger =
           \prim ->
               case prim of
                 PrimInteger i ->
-                    put [X.NodeContent (T.pack $ show i)]
+                    do let resNodes = [X.NodeContent (T.pack $ show i)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimInteger") M.empty resNodes
                 _ -> mismatch "Prim Integer" (show prim)
     , writeString =
           \prim ->
               case prim of
                 PrimString s ->
-                    put [X.NodeContent (T.pack s)]
+                    do let resNodes = [X.NodeContent (T.pack s)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimString") M.empty resNodes
                 _ -> mismatch "Prim String" (show prim)
     , writeDouble =
           \prim ->
               case prim of
                 PrimDouble d ->
-                    put [X.NodeContent (T.pack $ show d)]
+                    do let resNodes = [X.NodeContent (T.pack $ show d)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimDouble") M.empty resNodes
                 _ -> mismatch "Prim Double" (show prim)
     , writeBool =
           \prim ->
               case prim of
                 PrimBool b ->
-                    put [X.NodeContent (T.pack $ show b)]
+                    do let resNodes = [X.NodeContent (T.pack $ show b)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimBool") M.empty resNodes
                 _ -> mismatch "Prim Bool" (show prim)
     , writeChar =
           \prim ->
               case prim of
                 PrimChar c ->
-                    put [X.NodeContent (T.pack $ show c)]
+                    do let resNodes = [X.NodeContent (T.pack $ show c)]
+                       put resNodes
+                       lift $ put $ X.Element (makeName $ T.pack "PrimChar") M.empty resNodes
                 _ -> mismatch "Prim Char" (show prim)
     , writeRepetition =
           \ar ->
-              case length ar of
-                0 -> return ()
-                n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
-                        lift $ put value
-                        putter <- getSmartPut sFormat
-                        unversHead <- lift get
-                        put [X.NodeElement unversHead]
-                        withField sFormat $ putter (head ar)
-                        versHead <- get
-                        put $ replicate (n-1) (X.NodeElement value)
-                        forM_ (tail ar) $ \a -> do withField sFormat $ writeSmart sFormat a
-                                                   field <- get
-                                                   put field
-                        res <- get
-                        put $ versHead++res
-                        lift $ put $ X.Element (makeName "values") M.empty (versHead++res)
+              do let value = X.Element (makeName (T.pack "value")) M.empty []
+                 case length ar of
+                   0 -> do put [X.NodeElement value]
+                           lift $ put $ X.Element (makeName "PrimList") M.empty []
+                           return ()
+                   n -> do lift $ put value
+                           putter <- getSmartPut sFormat
+                           unversHead <- lift get
+                           put [X.NodeElement unversHead]
+                           withField sFormat $ putter (head ar)
+                           versHead <- get
+                           put $ replicate (n-1) (X.NodeElement value)
+                           forM_ (tail ar) $ \a ->
+                                do withField sFormat $ writeSmart sFormat a
+                                   field <- get
+                                   put field
+                           res <- get
+                           put $ versHead++res
+                           lift $ put $ X.Element (makeName "PrimList") M.empty (versHead++res)
     , writeMaybe =
           \ma ->
               case ma of
@@ -311,61 +339,68 @@ pFormat
                              mismatch "NodeElement" (show x)
     , readRepetition =
           do nodes <- lift $ lift $ lift get
-             put nodes
-             getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
+             el' <- lift $ lift get
+             case length nodes of
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimList" _ _) _ nodes' ->
+                         do lift $ lift $ lift $ put nodes'
+                            readListVals nodes'
+                     _ -> mismatch "primitive list at top-level" (show el')
+               n -> readListVals nodes
     , readInt =
           do nodes <- lift $ lift $ lift get
+             -- Handles primitive values at toplevel (wrapped in noname-element)
+             el' <- lift $ lift get
              case length nodes of
-               0 -> mismatch "Int NodeContent" (show nodes)
-               n ->
-                   case head nodes of
-                     X.NodeContent t ->
-                         case reads (T.unpack t) of
-                           [(int, [])] -> return $ PrimInt int
-                           _ -> mismatch "Int" (show $ head nodes)
-                     _ -> mismatch "NodeContent" (show $ head nodes)
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimInt" _ _) _ nodes ->
+                         getIntContent nodes
+                     _ ->
+                         mismatch "primitive int at toplevel" (show el')
+               n -> getIntContent nodes
     , readDouble =
           do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
              case length nodes of
-               0 -> mismatch "Double NodeContent" (show nodes)
-               n ->
-                   case head nodes of
-                     X.NodeContent t ->
-                         case reads (T.unpack t) of
-                           [(double, [])] -> return $ PrimDouble double
-                           _ -> mismatch "Double" (show $ head nodes)
-                     _ -> mismatch "NodeContent" (show $ head nodes)
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimDouble" _ _) _ nodes ->
+                         getDoubleContent nodes
+                     _ ->
+                         mismatch "primitive double at toplevel" (show el')
+               n -> getDoubleContent nodes
     , readBool =
           do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
              case length nodes of
-               0 -> mismatch "Bool NodeContent" (show nodes)
-               n ->
-                   case head nodes of
-                     X.NodeContent t
-                         | T.unpack t == "True" -> return $ PrimBool True
-                         | T.unpack t == "False" -> return $ PrimBool False
-                         | otherwise -> mismatch "Bool" (show t)
-                     _ -> mismatch "NodeContent" (show $ head nodes)
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimBool" _ _) _ nodes ->
+                        getBoolContent nodes
+                     _ -> mismatch "primitive bool at toplevel" (show el')
+               n -> getBoolContent nodes
     , readString =
           do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
              case length nodes of
-               0 -> mismatch "String NodeContent" (show nodes)
-               n ->
-                   case head nodes of
-                     X.NodeContent t ->
-                         return $ PrimString (T.unpack t)
-                     _ -> mismatch "NodeContent" (show $ head nodes)
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimString" _ _) _ nodes ->
+                         getStringContent nodes
+                     _ -> mismatch "primitive string at toplevel" (show el')
+               n -> getStringContent nodes
     , readChar =
           do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
              case length nodes of
-               0 -> mismatch "Char NodeContent" (show nodes)
-               n ->
-                   case head nodes of
-                     X.NodeContent t ->
-                         if T.length t == 1
-                            then return $ PrimChar $ T.head t
-                            else mismatch "Char" (show t)
-                     _ -> mismatch "NodeContent" (show $ head nodes)
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimChar" _ _) _ nodes ->
+                         getCharContent nodes
+                     _ -> mismatch "primitive char at toplevel" (show el')
+               n -> getCharContent nodes
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
@@ -379,6 +414,43 @@ pFormat
                             getSmartGet pFormat >>= liftM Just
                _ -> mismatch "element node containing Maybe value" (show $ head nodes)
     }
+    where getIntContent nodes =
+              case head nodes of
+                X.NodeContent t ->
+                    case reads (T.unpack t) of
+                      [(int, [])] -> return $ PrimInt int
+                      _ -> mismatch "Int" (show $ head nodes)
+                _ -> mismatch "NodeContent" (show $ head nodes)
+          getDoubleContent nodes =
+              case head nodes of
+                X.NodeContent t ->
+                    case reads (T.unpack t) of
+                      [(double, [])] -> return $ PrimDouble double
+                      _ -> mismatch "Double" (show $ head nodes)
+                _ -> mismatch "NodeContent" (show $ head nodes)
+          getBoolContent nodes =
+                   case head nodes of
+                     X.NodeContent t
+                         | T.unpack t == "True" -> return $ PrimBool True
+                         | T.unpack t == "False" -> return $ PrimBool False
+                         | otherwise -> mismatch "Bool" (show t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
+          getStringContent nodes =
+                   case head nodes of
+                     X.NodeContent t ->
+                         return $ PrimString (T.unpack t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
+          getCharContent nodes =
+                   case head nodes of
+                     X.NodeContent t ->
+                         if T.length t == 1
+                            then return $ PrimChar $ T.head t
+                            else mismatch "Char" (show t)
+                     _ -> mismatch "NodeContent" (show $ head nodes)
+          readListVals nodes =
+                   do put nodes
+                      getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
+
 
 
 -------------------------------------------------------------------------------

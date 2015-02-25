@@ -1,3 +1,5 @@
+{-# LANGUAGE PackageImports #-}
+
 module SmartCopy.Formats.SafeCopy
        ( serializeSmart
        , parseSmart
@@ -32,8 +34,9 @@ import Data.Word
 -------------------------------------------------------------------------------
 import qualified Data.ByteString as BS
 
+import "mtl" Control.Monad.Reader
+
 import Control.Applicative
-import Control.Monad.Reader
 import Data.Maybe
 
 
@@ -152,7 +155,7 @@ pFormat
           do prim <- S.get
              return $ PrimDouble prim
     , readString =
-          do prim <- S.getListOf (S.get :: Get Char)
+          do prim <- readRepetition pFormat
              return $ PrimString prim
     , readMaybe =
           do b <- S.get

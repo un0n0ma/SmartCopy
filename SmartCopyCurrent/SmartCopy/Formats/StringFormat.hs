@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 
@@ -27,9 +28,9 @@ import Data.List.Utils (startswith)
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Writer
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
+import "mtl" Control.Monad.Writer
 
 -------------------------------------------------------------------------------
 -- Run functions, versioned and unversioned
@@ -169,7 +170,7 @@ sFormat
                 Nothing -> tell ""
                 Just a -> smartPut sFormat a
     }
-    where wrapM m = do { tell " ("; m; tell ") " }
+    where wrapM m = do { tell " ("; m; tell ")" }
 
                 
 -------------------------------------------------------------------------------
@@ -327,12 +328,15 @@ readClose =
                 return ""
          _ -> fail $ "No closing parenthesis found at " ++ str ++ "."
 
-mapWithDelim mb list acc =
-    do let (listelem, listrest) = L.span (/= ',') list
-       case T.unpack $ T.strip $ T.pack listrest of
-         ',':xs -> do put listelem
-                      parseElem <- mb
-                      mapWithDelim mb xs (acc ++ [parseElem])
-         _ -> do put listelem
-                 parseElem <- mb
-                 return $ acc ++ [parseElem]
+mapWithDelim mb list acc
+    | length list == 0 
+    = return []
+    | otherwise
+    = do let (listelem, listrest) = L.span (/= ',') list
+         case T.unpack $ T.strip $ T.pack listrest of
+           ',':xs -> do put listelem
+                        parseElem <- mb
+                        mapWithDelim mb xs (acc ++ [parseElem])
+           _ -> do put listelem
+                   parseElem <- mb
+                   return $ acc ++ [parseElem]

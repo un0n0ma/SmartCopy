@@ -66,14 +66,15 @@ import GHC.Generics
 
 class SmartCopy a where
     version :: Version a
-    default version :: (Generic a, GSmartCopy (Rep a)) => Version a
-    version = castVersion (gversion :: Version (Rep a x))
+    version = 0
     kind :: Kind a
     kind = Base
     writeSmart :: Monad m => SerializationFormat m -> a -> m ()
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
-    writeSmart fmt a = gwriteSmart fmt (from a)
+    writeSmart fmt a
+        = gwriteSmart fmt (from a) False 0
+          (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m a
     readSmart fmt = fmap to (greadSmart fmt)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
@@ -82,11 +83,18 @@ class SmartCopy a where
 
 class GSmartCopy t where
     gversion :: Version (t x)
-    gversion = Version 0
     gkind :: Kind (t x)
     gkind = Base
-    gwriteSmart :: Monad m => SerializationFormat m -> t x -> m ()
-    greadSmart :: (Functor m, Applicative m, Monad m, Alternative m) => ParseFormat m -> m (t x)
+    gwriteSmart :: Monad m
+                => SerializationFormat m
+                -> t x
+                -> Bool --- Sum type?
+                -> Integer -- Constructor index
+                -> Version (t x)
+                -> m ()
+    greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
+               => ParseFormat m
+               -> m (t x)
 
 
 -------------------------------------------------------------------------------

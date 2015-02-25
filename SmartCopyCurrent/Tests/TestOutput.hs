@@ -8,7 +8,8 @@ import qualified SmartCopy.Formats.JSON as J
                , serializeUnvers
                , parseSmart
                , parseUnvers
-               , encode
+               , encodeUnvers
+               , encodeSmart
                )
 import qualified SmartCopy.Formats.StringFormat as S
                ( serializeSmart
@@ -50,14 +51,15 @@ main = do args <- getArgs
           case args of
             "json":_ ->
                 do putStrLn "DATATYPES AS JSON VALUES:"
+                   print (J.serializeSmart Test.v8)
+                   print (J.serializeSmart Test.v6a)
+                   print (J.serializeSmart Test.v6b)
                    print (J.serializeSmart Test.v1)
                    print (J.serializeSmart Test.v2)
                    print (J.serializeSmart Test.v3)
                    print (J.serializeSmart Test.v4)
                    print (J.serializeSmart Test.v5)
-                   print (J.serializeSmart Test.v6)
                    print (J.serializeSmart Test.v7)
-                   print (J.serializeSmart Test.v8)
                    print (J.serializeSmart Test.some2)
                    print (J.serializeSmart Test.some1)
                    print (J.serializeSmart Test.string)
@@ -72,7 +74,8 @@ main = do args <- getArgs
                    print (J.serializeUnvers Test.v3)
                    print (J.serializeUnvers Test.v4)
                    print (J.serializeUnvers Test.v5)
-                   print (J.serializeUnvers Test.v6)
+                   print (J.serializeUnvers Test.v6a)
+                   print (J.serializeUnvers Test.v6b)
                    print (J.serializeUnvers Test.v7)
                    print (J.serializeUnvers Test.v8)
                    print (J.serializeUnvers Test.some2)
@@ -94,14 +97,16 @@ main = do args <- getArgs
                    print (J.parseUnvers Test.js3 :: Fail Test.FooBar)
                    print (J.parseSmart (J.serializeSmart Test.string') :: Fail Test.StringTest2)
                    putStrLn "ENCODING:"
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v4))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v3))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v5))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v6))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v1))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v2))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v7))
-                   BSL.putStrLn (J.encode (J.serializeSmart Test.v8))
+                   BSL.putStrLn (J.encodeUnvers Test.v4)
+                   BSL.putStrLn (J.encodeUnvers Test.v3)
+                   BSL.putStrLn (J.encodeUnvers Test.v5)
+                   BSL.putStrLn (J.encodeUnvers Test.v6a)
+                   BSL.putStrLn (J.encodeUnvers Test.v6b)
+                   BSL.putStrLn (J.encodeUnvers Test.v1)
+                   BSL.putStrLn (J.encodeUnvers Test.v2)
+                   BSL.putStrLn (J.encodeUnvers Test.v7)
+                   BSL.putStrLn (J.encodeUnvers Test.v8)
+                   BSL.putStrLn (J.encodeSmart Test.v8)
             "string":_ ->
                 do putStrLn "DATATYPES AS STRING VALUES:"
                    print (S.serializeUnvers Test.maybetest1)
@@ -110,6 +115,8 @@ main = do args <- getArgs
                    print (S.serializeUnvers Test.v2)
                    print (S.serializeSmart Test.v1)
                    print (S.serializeSmart Test.v5)
+                   print (S.serializeSmart Test.v6a)
+                   print (S.serializeSmart Test.v6b)
                    print (S.serializeSmart Test.v8)
                    print (S.serializeSmart Test.string)
                    print (S.serializeSmart Test.some1)
@@ -130,6 +137,8 @@ main = do args <- getArgs
                    print (S.parseUnvers Test.s7 :: Fail Test.ArrTypeFooBar)
             "xml":_ ->
                 do putStrLn "DATATYPES XML-ENCODED:"
+                   putStrLn (X.serializeSmart (42 :: Int))
+                   putStrLn (X.serializeUnvers (42 :: Int))
                    putStrLn (X.serializeSmart ([1,2,3,4] :: [Int]))
                    putStrLn (X.serializeUnvers ([1,2,3,4] :: [Int]))
                    putStrLn (X.serializeSmart Test.some1)
@@ -139,7 +148,10 @@ main = do args <- getArgs
                    putStrLn (X.serializeSmart Test.some2)
                    putStrLn (X.serializeSmart Test.v4)
                    putStrLn (X.serializeSmart Test.v5)
-                   putStrLn (X.serializeSmart Test.v6)
+                   putStrLn (X.serializeUnvers Test.v6a)
+                   putStrLn (X.serializeSmart Test.v6a)
+                   putStrLn (X.serializeUnvers Test.v6b)
+                   putStrLn (X.serializeSmart Test.v6b)
                    putStrLn (X.serializeSmart Test.v7)
                    putStrLn (X.serializeSmart Test.v8)
                    putStrLn (X.serializeSmart Test.string)
@@ -167,7 +179,8 @@ main = do args <- getArgs
                    print $ prettyHex $ SMC.serializeSmart Test.v4
                    print $ prettyHex $ SMC.serializeSmart (23 :: Int)
                    print $ prettyHex $ SMC.serializeSmart Test.v5
-                   print $ prettyHex $ SMC.serializeSmart Test.v6
+                   print $ prettyHex $ SMC.serializeSmart Test.v6a
+                   print $ prettyHex $ SMC.serializeSmart Test.v6b
                    print $ prettyHex $ SMC.serializeSmart Test.v7
                    print $ prettyHex $ SMC.serializeSmart Test.v8
                    print $ prettyHex $ SMC.serializeSmart Test.string'
