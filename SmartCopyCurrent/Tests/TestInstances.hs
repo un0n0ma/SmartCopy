@@ -54,6 +54,7 @@ data BoolTest = BoolTest Bool deriving (Eq, Show, Generic)
 data BoolTestLong = BoolTestLong { blist :: [Bool], b :: Bool, slist :: [String] } 
     deriving (Eq, Show, Generic)
 data MaybeTest = MaybeTest Int (Maybe Bar) deriving (Eq, Show, Generic)
+data MaybeTestX = MaybeTestX [Maybe Int] Bar [String] deriving (Eq, Show, Generic)
 
 instance Json.ToJSON Some
 instance Json.ToJSON Some2

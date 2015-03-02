@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,6 +20,8 @@ module SmartCopy.SmartCopy
        , getSmartGet
        , smartPut
        , smartGet
+       , smartPutWithVersion
+       , constructGetterFromVersion
        , mismatch
        , noCons
        , conLookupErr
@@ -30,10 +33,14 @@ module SmartCopy.SmartCopy
        , Prim (..)
        , Version (..)
        , Kind (..)
+       , Reverse
        , Proxy (..)
        , asProxyType
+       , mkProxy
        , versionFromProxy
+       , kindFromProxy
        , castVersion
+       , versionMap
        )
 where
 
@@ -45,6 +52,8 @@ import SmartCopy.MonadTypesInstances
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import qualified Data.ByteString as BS
+import qualified Data.Map as M
 import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as S
 
@@ -73,8 +82,8 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = gwriteSmart fmt (from a) False 0
-          (castVersion (version :: Version a) :: Version (Rep a x))
+        = gwriteSmart fmt (from a) False 0 False
+        --  (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m a
     readSmart fmt = fmap to (greadSmart fmt)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
@@ -90,7 +99,8 @@ class GSmartCopy t where
                 -> t x
                 -> Bool --- Sum type?
                 -> Integer -- Constructor index
-                -> Version (t x)
+                -> Bool --- Versioned?
+    --            -> Version (t x)
                 -> m ()
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
@@ -103,33 +113,37 @@ class GSmartCopy t where
 
 data SerializationFormat m
     = SerializationFormat
-    { withVersion :: forall a. Version a -> m () -> m ()
+    { mkPutter :: SmartCopy a => Version a -> m (a -> m ())
     , withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
     , writeRepetition :: SmartCopy a => [a] -> m ()
-    , writeInt :: Prim -> m ()
-    , writeInteger :: Prim -> m ()
-    , writeChar :: Prim -> m ()
-    , writeBool :: Prim -> m ()
-    , writeDouble :: Prim -> m ()
-    , writeString :: Prim -> m ()
-    , writeVersion :: forall a. Version a -> m ()
+    , writeInt :: Int -> m ()
+    , writeInteger :: Integer -> m ()
+    , writeChar :: Char -> m ()
+    , writeBool :: Bool -> m ()
+    , writeDouble :: Double -> m ()
+    , writeString :: String -> m ()
     , writeMaybe :: SmartCopy a => Maybe a -> m ()
+    , writeBS :: BS.ByteString -> m ()
+    , writeText :: T.Text -> m ()
     }
 
 data ParseFormat m
     = ParseFormat
-    { readVersioned :: forall a. m a -> m a
+    { mkGetter :: SmartCopy a => m (m a)
+    , readVersioned :: forall a. m a -> m a
     , readVersion :: forall a. m (Maybe (Version a))
     , readCons :: forall a. [(Cons, m a)] -> m a
     , readField :: forall a. m a -> m a
     , readRepetition :: SmartCopy a => m [a]
-    , readInt :: m Prim
-    , readChar :: m Prim
-    , readBool :: m Prim
-    , readDouble :: m Prim
-    , readString :: m Prim
+    , readInt :: m Int
+    , readChar :: m Char
+    , readBool :: m Bool
+    , readDouble :: m Double
+    , readString :: m String
     , readMaybe :: SmartCopy a => m (Maybe a)
+    , readBS :: m BS.ByteString
+    , readText :: m T.Text
     }
 
 
@@ -149,6 +163,9 @@ noCons = fail "No constructor found during look-up."
 
 vNotFound :: String -> String
 vNotFound s = "Cannot find getter associated with version " ++ s ++ "."
+
+vNotFoundPutter :: String -> String
+vNotFoundPutter s = "Cannot find putter associated with version " ++ s ++ "."
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
@@ -185,9 +202,9 @@ data Prim = PrimInt Int
 -- In unversioned formats the functions can directly run readSmart and writeSmart.
 
 smartPut :: (SmartCopy a, Monad m) => SerializationFormat m -> a ->  m ()
-smartPut fmt a =
-    do putter <- getSmartPut fmt
-       putter a
+smartPut fmt a
+    = do putter <- getSmartPut fmt
+         putter a
 
 smartGet :: (SmartCopy a, Monad m, Applicative m, Alternative m)
          => ParseFormat m
@@ -204,8 +221,7 @@ getSmartPut fmt =
     case kindFromProxy proxy of
       Primitive -> return $ \a -> writeSmart fmt $ asProxyType a proxy
       _         -> do let ver = version :: Version a
-                      writeVersion fmt ver
-                      return $ \a -> withVersion fmt ver $ writeSmart fmt $ asProxyType a proxy
+                      mkPutter fmt ver
     where proxy = Proxy :: Proxy a
 
 getSmartGet :: forall a m. (SmartCopy a, Monad m, Applicative m, Alternative m)
@@ -215,22 +231,54 @@ getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ readSmart fmt
-      kind -> do v <- readVersion fmt :: m (Maybe (Version a))
-                 case v of
-                   Just  v' ->
-                       case constructGetterFromVersion fmt v' kind of
-                         Right getter -> return getter
-                         Left msg -> fail msg
-                   Nothing ->
-                       return $ readSmart fmt
+      kind -> mkGetter fmt
       where proxy = Proxy :: Proxy a
 
+-- Serialize in a particular version of the datatype
 
--- Migrate class
+smartPutWithVersion :: (SmartCopy a, Monad m)
+                    => SerializationFormat m
+                    -> a
+                    -> Int32
+                    -> m ()
+smartPutWithVersion fmt a version =
+    do putter <- getSmartPutWithVersion fmt (versionMap a) version
+       putter a
+
+getSmartPutWithVersion :: forall a m. (SmartCopy a, Monad m)
+               => SerializationFormat m
+               -> VersionMap a
+               -> Int32
+               -> m (a -> m ())
+getSmartPutWithVersion fmt vMap version =
+    checkConsistency proxy $
+        do let VersionMap verMap = vMap
+           case M.lookup (Version version) verMap of
+             Just typeId -> mkPutter fmt (Version version :: Version typeId)
+             Nothing -> fail $ vNotFoundPutter (show version)
+    where proxy = Proxy :: Proxy a
+
+-- Migrate
 
 class SmartCopy (MigrateFrom a) => Migrate a where
     type MigrateFrom a
     migrate :: MigrateFrom a -> a
+
+data VersionMap a = VersionMap (M.Map (Version a) (Proxy a)) deriving (Show, Eq)
+
+versionMap :: forall a. SmartCopy a => a -> VersionMap a
+versionMap a
+    = case kindFromProxy aProxy of
+        Primitive -> VersionMap $ M.singleton (Version 0) aProxy
+        Base -> VersionMap $ M.singleton (versionFromProxy aProxy) aProxy
+        Extends bProxy ->
+            let VersionMap bMap = versionMap (undefined :: bProxy)
+            in VersionMap $ M.insert (versionFromProxy aProxy) aProxy bMap
+        Extended aKind ->
+            let revProxy :: Proxy (MigrateFrom (Reverse a))
+                revProxy = Proxy
+            in versionMap (undefined :: revProxy)
+      where aProxy = Proxy :: Proxy a
 
 -- Types and utility functions from SafeCopy (SafeCopy exports are not sufficient)
 
@@ -249,6 +297,9 @@ instance Num (Version a) where
     signum (Version a) = Version (signum a)
     fromInteger i = Version (fromInteger i)
 
+instance Ord (Version a) where
+    Version a <= Version b = a <= b
+
 castVersion :: Version a -> Version b
 castVersion (Version a) = Version a
 
@@ -263,13 +314,19 @@ data Kind a where
 extension :: (SmartCopy a, Migrate a) => Kind a
 extension = Extends Proxy
 
+extendedExtension :: (SmartCopy a, Migrate a, Migrate (Reverse a)) => Kind a
+extendedExtension = Extended extension
+
+extendedBase :: (Migrate (Reverse a)) => Kind a
+extendedBase = Extended base
+
 base :: Kind a
 base = Base
 
 primitive :: Kind a
 primitive = Primitive
 
-data Proxy a = Proxy
+data Proxy a = Proxy deriving (Show, Eq)
 
 versionFromKind :: SmartCopy a => Kind a -> Version a
 versionFromKind _ = version
@@ -301,7 +358,7 @@ constructGetterFromVersion fmt diskV origK =
            -> Kind a
            -> Either String (m a)
     worker fmt fwd thisV thisK
-        | version == thisV = return $ readVersioned fmt $ readSmart fmt
+        | version == thisV = return $ readSmart fmt
         | otherwise =
           case thisK of
             Primitive -> Left "Cannot migrate from primitive types."
@@ -339,6 +396,7 @@ consistentFromProxy _ = internalConsistency
 internalConsistency :: SmartCopy a => Consistency a
 internalConsistency = computeConsistency Proxy
 
+{-# INLINE computeConsistency #-}
 computeConsistency :: SmartCopy a => Proxy a -> Consistency a
 computeConsistency proxy
     | isObviouslyConsistent (kindFromProxy proxy)

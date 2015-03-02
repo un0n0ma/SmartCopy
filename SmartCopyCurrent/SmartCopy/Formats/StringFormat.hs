@@ -21,6 +21,8 @@ import SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.List as L (span)
 import qualified Data.Text as T
 import Data.List.Utils (startswith)
@@ -56,8 +58,7 @@ parseUnvers = runParser (readSmart pFormatUnvers)
 
 sFormatUnvers
     = sFormat
-    { writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
     , writeRepetition =
           \rep ->
               do tell "["
@@ -81,8 +82,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { readVersion = return Nothing
-    , readRepetition =
+    { readRepetition =
           do str' <- get
              let str = filter (/=' ') str'
              case str of
@@ -113,8 +113,10 @@ pFormatUnvers
 sFormat :: SerializationFormat (Writer String)
 sFormat
     = SerializationFormat
-    { writeVersion = \ver -> wrapM $ tell $ "version:" ++ show (unVersion ver)
-    , withVersion = const id
+    { mkPutter =
+          \ver ->
+              do wrapM $ tell $ "version:" ++ show (unVersion ver)
+                 return $ writeSmart sFormat
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
@@ -134,41 +136,19 @@ sFormat
                                        tell ",") $ init xs
                           writeSmart sFormat $ last xs
                  tell "]"
-    , writeInt =
-          \prim ->
-              case prim of
-                PrimInt i    -> tell $ show i
-                _            -> mismatch "Prim Int" (show prim)
-    , writeInteger =
-          \prim ->
-              case prim of
-                PrimInteger i    -> tell $ show i
-                _            -> mismatch "Prim Integer" (show prim)
-    , writeChar =
-          \prim ->
-              case prim of
-                PrimChar c   -> tell "c"
-                _            -> mismatch "Prim Char" (show prim)
-    , writeDouble =
-          \prim ->
-              case prim of
-                PrimDouble d -> tell $ show d
-                _            -> mismatch "Prim Double" (show prim)
-    , writeString =
-          \prim ->
-              case prim of
-                PrimString s -> tell s
-                _            -> mismatch "Prim String" (show prim)
-    , writeBool =
-          \prim ->
-              case prim of
-                PrimBool b   -> tell $ show b
-                _            -> mismatch "Prim Bool" (show prim)
+    , writeInt = tell . show
+    , writeInteger = tell . show
+    , writeChar = tell . show
+    , writeDouble = tell . show
+    , writeString = tell
+    , writeBool = tell . show
     , writeMaybe =
           \ma ->
               case ma of
                 Nothing -> tell ""
                 Just a -> smartPut sFormat a
+    , writeBS = tell . BSC.unpack
+    , writeText = tell . T.unpack
     }
     where wrapM m = do { tell " ("; m; tell ")" }
 
@@ -180,24 +160,15 @@ sFormat
 pFormat :: ParseFormat (FailT (State String))
 pFormat
     = ParseFormat
-    { readVersioned =
-        \ma ->
-        do str' <- get
-           let str = filter (/=' ') str'
-           ma
-    , readVersion =
-         do str' <- get
-            let str = filter (/=' ') str'
-                (untilVer, after) = L.span (/=':') str
-            case after of
-              ':':xs ->
-                  case reads xs of
-                    [(int, ')':afterVer)] ->
-                        do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
-                           put withoutVer
-                           return $ Just $ Version int
-                    _ -> mismatch "Int32" after
-              _ -> return $ Just $ Version 0
+    { mkGetter =
+        do let kind = kindFromProxy (Proxy :: Proxy a)
+           version <- readVersion
+           case version of
+             Just v ->
+                 case constructGetterFromVersion pFormat v kind of
+                         Right getter -> return getter
+                         Left msg -> fail msg
+             Nothing -> return $ readSmart pFormat
     , readCons =
          \cons ->
              do str <- get
@@ -219,7 +190,7 @@ pFormat
                  return res
 
     , readRepetition =
-          do readVersion pFormat
+          do readVersion
              str' <- get
              let str = filter (/=' ') str'
              case str of
@@ -240,7 +211,7 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return $ PrimInt num
+                      return num
                [] -> mismatch "Int" prim
     , readChar =
          do str <- get
@@ -249,7 +220,7 @@ pFormat
               0 -> mismatch "Char" prim
               _ ->
                   do put $ tail prim
-                     return $ PrimChar $ head prim 
+                     return $ head prim 
     , readBool =
           do str <- get
              let prim = filter (/=' ') str
@@ -260,13 +231,13 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return $ PrimDouble num
+                      return num
                [] -> mismatch "Double" prim
     , readString =
           do str <- get
              let prim = filter (/=' ') str
              put $ snd $ delimit prim
-             return $ PrimString $ fst $ delimit prim
+             return $ fst $ delimit prim
     , readMaybe =
           do str' <- get
              let str = filter (/=' ') str'
@@ -275,16 +246,39 @@ pFormat
                    do put str
                       return Nothing
                _ -> liftM Just $ smartGet pFormat
+    , readBS =
+         do str <- get
+            let prim = filter (/=' ') str
+            put $ snd $ delimit prim
+            return $ BSC.pack $ fst $ delimit prim
+    , readText =
+         do str <- get
+            let prim = filter (/=' ') str
+            put $ snd $ delimit prim
+            return $ T.pack $ fst $ delimit prim
     }
     where delimit                  = L.span (/=')')
-          readBool' :: String -> FailT (State String) Prim
+          readBool' :: String -> FailT (State String) Bool
           readBool' prim
               | startswith "True" prim =
-                do put $ drop 4 prim; return $ PrimBool True
+                do put $ drop 4 prim; return True
               | startswith "False" prim =
-                do put $ drop 5 prim; return $ PrimBool False
+                do put $ drop 5 prim; return False
               | otherwise =
                 mismatch "Bool" prim
+          readVersion =
+              do str' <- get
+                 let str = filter (/=' ') str'
+                     (untilVer, after) = L.span (/=':') str
+                 case after of
+                   ':':xs ->
+                        case reads xs of
+                          [(int, ')':afterVer)] ->
+                              do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
+                                 put withoutVer
+                                 return $ Just $ Version int
+                          _ -> mismatch "int32" after
+                   _ -> return Nothing
 
 
 -------------------------------------------------------------------------------
@@ -329,7 +323,7 @@ readClose =
          _ -> fail $ "No closing parenthesis found at " ++ str ++ "."
 
 mapWithDelim mb list acc
-    | length list == 0 
+    | null list
     = return []
     | otherwise
     = do let (listelem, listrest) = L.span (/= ',') list

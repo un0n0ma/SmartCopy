@@ -26,6 +26,7 @@ import Data.Int
 import Data.List (unfoldr)
 import Data.Serialize.Put
 import Data.Serialize.Get
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Word8
 import Data.Word
 
@@ -59,8 +60,8 @@ parseUnvers = S.runGet $ readSmart pFormatUnvers
 sFormat :: SerializationFormat PutM
 sFormat
     = SerializationFormat
-    { withVersion = const id
-    , writeVersion = S.put . unVersion
+    { mkPutter =
+          \ver -> S.put (unVersion ver) >> return (writeSmart sFormat)
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -72,41 +73,12 @@ sFormat
           \lst ->
               do S.put (length lst)
                  getSmartPut sFormat >>= forM_ lst
-    , writeInt =
-          \prim ->
-              case prim of
-                PrimInt i ->
-                    S.put i
-                _ -> mismatch "Prim int" (show prim)
-    , writeChar =
-          \prim ->
-              case prim of
-                PrimChar i ->
-                    S.put i
-                _ -> mismatch "Prim char" (show prim)
-    , writeInteger =
-          \prim ->
-              case prim of
-                PrimInteger i ->
-                    S.put i
-                _ -> mismatch "Prim integer" (show prim)
-    , writeString =
-          \prim ->
-              case prim of
-                PrimString s -> writeRepetition sFormat s
-                _ -> mismatch "Prim string" (show prim)
-    , writeBool =
-          \prim ->
-              case prim of
-                PrimBool b ->
-                    S.put b
-                _ -> mismatch "Prim bool" (show prim)
-    , writeDouble =
-          \prim ->
-              case prim of
-                PrimDouble d ->
-                    S.put d
-                _ -> mismatch "Prim double" (show prim)
+    , writeInt = S.put
+    , writeChar = S.put
+    , writeInteger = S.put
+    , writeString = writeRepetition sFormat
+    , writeBool = S.put
+    , writeDouble = S.put
     , writeMaybe =
           \m ->
               case m of
@@ -114,6 +86,8 @@ sFormat
                     S.put True >> smartPut sFormat a
                 Nothing ->
                     S.put False
+    , writeBS = S.put
+    , writeText = smartPut sFormat . encodeUtf8
     }
     
 -------------------------------------------------------------------------------
@@ -122,7 +96,12 @@ sFormat
 pFormat :: ParseFormat Get
 pFormat
     = ParseFormat
-    { readVersioned = id
+    { mkGetter =
+          do v <- liftM Version S.get
+             let kind = kindFromProxy (Proxy :: Proxy a)
+             case constructGetterFromVersion pFormat v kind of
+               Right getter -> return getter
+               Left msg -> fail msg
     , readVersion = liftM (Just . Version) S.get
     , readCons =
         \cons ->
@@ -142,25 +121,17 @@ pFormat
     , readRepetition =
           do n <- S.get
              getSmartGet pFormat >>= replicateM n
-    , readInt =
-          do prim <- S.get
-             return $ PrimInt prim
-    , readChar =
-          do prim <- S.get
-             return $ PrimChar prim
-    , readBool =
-          do prim <- S.getWord8
-             return $ PrimBool $ toEnum $ fromIntegral prim
-    , readDouble =
-          do prim <- S.get
-             return $ PrimDouble prim
-    , readString =
-          do prim <- readRepetition pFormat
-             return $ PrimString prim
+    , readInt = S.get
+    , readChar = S.get
+    , readBool = liftM (toEnum . fromIntegral) S.getWord8
+    , readDouble = S.get
+    , readString = readRepetition pFormat
     , readMaybe =
           do b <- S.get
              if b then liftM Just $ smartGet pFormat
                   else return Nothing
+    , readBS = S.get
+    , readText = liftM decodeUtf8 (smartGet pFormat)
     }
 
 -------------------------------------------------------------------------------
@@ -169,13 +140,9 @@ pFormat
 
 sFormatUnvers
     = sFormat
-    { writeVersion = \_ -> return () 
+    { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
     , writeRepetition = putListOf (writeSmart sFormatUnvers)
-    , writeString =
-          \prim ->
-          case prim of
-            PrimString s -> writeRepetition sFormatUnvers s
-            _ -> mismatch "Prim string" (show prim)
+    , writeString = writeRepetition sFormatUnvers
     , writeMaybe =
           \m ->
               case m of
@@ -187,11 +154,9 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { readVersion = return Nothing
+    { mkGetter = return $ readSmart pFormatUnvers 
     , readRepetition = getListOf (readSmart pFormatUnvers)
-    , readString =
-          do s <- readRepetition pFormatUnvers
-             return $ PrimString s
+    , readString = readRepetition pFormatUnvers
     , readMaybe =
           do b <- S.get
              if b then liftM Just $ readSmart pFormatUnvers

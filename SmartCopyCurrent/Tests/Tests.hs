@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -55,6 +54,7 @@ import Test.QuickCheck
 import Hexdump
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.HashMap as M
 import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as B
@@ -86,8 +86,8 @@ mkParseSerTest ser parseF writeF s =
        assertEqual (psTestMsg s) ser sResult
 
 mkCompSerTest dtype writeF1 writeF2 b s =
-    do let sResult1 = (writeF1 dtype) `asTypeOf` b
-           sResult2 = (writeF2 dtype) `asTypeOf` b
+    do let sResult1 = writeF1 dtype `asTypeOf` b
+           sResult2 = writeF2 dtype `asTypeOf` b
        assertEqual (compTestMsg s) sResult1 sResult2
 
 compareParseAeson val a =
@@ -105,7 +105,7 @@ compTestMsg s = "Comparing SmartCopy-serialized datatypes with " ++ s ++ "."
 -- JSON
 -------------------------------------------------------------------------------
 
-tests_JSON_vers
+testsJSONVers
     = do let s = "JSON"
          mkTestList 
              [ mkSerParseTest Test.v1 J.serializeSmart J.parseSmart s
@@ -128,17 +128,18 @@ tests_JSON_vers
              , mkSerParseTest Test.string J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.string' J.serializeSmart J.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) J.serializeSmart J.parseSmart s
+             , mkSerParseTest ([] :: [String]) J.serializeSmart J.parseSmart s
              , mkSerParseTest (42 :: Int) J.serializeSmart J.parseSmart s
+             , mkSerParseTest (BSC.pack "ByteString") J.serializeSmart J.parseSmart s
+             , mkSerParseTest (T.pack "Text") J.serializeSmart J.parseSmart s
              , mkSerParseTest TestV2.easy J.serializeSmart J.parseSmart s
-             , mkSerParseTest TestV2.easy J.serializeSmart J.parseSmart s
-             , mkSerParseTest TestV2.some J.serializeSmart J.parseSmart s
              , mkSerParseTest TestV2.some J.serializeSmart J.parseSmart s
              , mkParseSerTest Test.js1 (J.parseSmart :: Json.Value -> Fail Test.MyDouble) 
                                        J.serializeSmart s
              ]
                         
 
-tests_JSON_unvers
+testsJSONUnvers
     = do let s = "JSON"
              s2 = "Aeson"
          mkTestList
@@ -208,7 +209,7 @@ tests_JSON_unvers
 -- String-Encoding
 -------------------------------------------------------------------------------
 
-tests_String_unvers
+testsStringUnvers
     = do let s = "String"
          mkTestList
              [ mkSerParseTest Test.v1 S.serializeUnvers S.parseUnvers s
@@ -251,7 +252,7 @@ tests_String_unvers
                                       S.serializeUnvers s
              ]
 
-tests_String_vers
+testsStringVers
     = do let s = "String-versioned"
          mkTestList
              [ mkSerParseTest Test.v1 S.serializeSmart S.parseSmart s
@@ -276,6 +277,7 @@ tests_String_vers
              , mkSerParseTest Test.string' S.serializeSmart S.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) S.serializeSmart S.parseSmart s 
              , mkSerParseTest (42 :: Int) S.serializeSmart S.parseSmart s
+             , mkSerParseTest ([] :: [String]) S.serializeSmart S.parseSmart s
              , mkSerParseTest TestV2.easy S.serializeSmart S.parseSmart s
              , mkSerParseTest TestV2.some S.serializeSmart S.parseSmart s
              ]
@@ -284,7 +286,7 @@ tests_String_vers
 -- Xml
 -------------------------------------------------------------------------------
 
-tests_Xml_vers
+testsXmlVers
     = do let s = "XML-versioned"
          mkTestList
              [ mkSerParseTest Test.v1 X.serializeSmart X.parseSmart s
@@ -308,13 +310,16 @@ tests_Xml_vers
              , mkSerParseTest Test.string' X.serializeSmart X.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) X.serializeSmart X.parseSmart s 
              , mkSerParseTest (42 :: Int) X.serializeSmart X.parseSmart s
-             , mkSerParseTest ("String") X.serializeSmart X.parseSmart s
+             , mkSerParseTest ([] :: [String]) X.serializeSmart X.parseSmart s
+             , mkSerParseTest "String" X.serializeSmart X.parseSmart s
+             , mkSerParseTest (T.pack "Text") X.serializeSmart X.parseSmart s
+             , mkSerParseTest (BSC.pack "ByteString") X.serializeSmart X.parseSmart s
              , mkSerParseTest True X.serializeSmart X.parseSmart s
              , mkSerParseTest TestV2.easy X.serializeSmart X.parseSmart s
              , mkSerParseTest TestV2.some X.serializeSmart X.parseSmart s
              ]
 
-tests_Xml_unvers
+testsXmlUnvers
     = do let s = "XML-unversioned"
          mkTestList
              [ mkSerParseTest Test.v1 X.serializeUnvers X.parseUnvers s
@@ -338,7 +343,7 @@ tests_Xml_unvers
              , mkSerParseTest Test.string' X.serializeUnvers X.parseUnvers s
              , mkSerParseTest ([1,2,3,4] :: [Int]) X.serializeUnvers X.parseUnvers s 
              , mkSerParseTest (42 :: Int) X.serializeUnvers X.parseUnvers s
-             , mkSerParseTest ("String") X.serializeUnvers X.parseUnvers s
+             , mkSerParseTest "String" X.serializeUnvers X.parseUnvers s
              , mkSerParseTest True X.serializeUnvers X.parseUnvers s
              , mkSerParseTest TestV2.easy X.serializeUnvers X.parseUnvers s
              , mkSerParseTest TestV2.some X.serializeUnvers X.parseUnvers s
@@ -356,56 +361,54 @@ tests_Xml_unvers
 -------------------------------------------------------------------------------
 -- Binary (unversioned safecopy)
 -------------------------------------------------------------------------------
-tests_Binary
+testsBinary
     = do let s = "Binary-unversioned"
              s2 = "Data.Serialize ByteStrings"
          mkTestList
              [ mkSerParseTest Test.v1 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
-             , mkSerParseTest Test.v2 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v3 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v4 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v5 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v6a SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v6b SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v7 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.v8 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.some1 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.some2 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.booltest SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.booltest' SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.mybool SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.mybool' SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.maybetest1 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.maybetest2 SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.string SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest Test.string' SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest ([1,2,3,4] :: [Int]) SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest (42 :: Int) SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest TestV2.easy SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest TestV2.some SMC.serializeUnvers
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseUnvers ser)) s
+                    (either (fail . msg) return . SMC.parseUnvers) s
              , mkCompSerTest Test.v5 SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
              , mkCompSerTest Test.v6a SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
              , mkCompSerTest Test.v6b SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
@@ -427,7 +430,7 @@ tests_Binary
              , mkCompSerTest Test.maybetest2 SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
              ]
 
-tests_SafeCopy
+testsSafeCopy
     = do let s = "versioned Binary"
              s2 = "SafeCopy ByteStrings"
          mkTestList
@@ -453,9 +456,13 @@ tests_SafeCopy
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkCompSerTest ([1,2,3] :: [Int]) (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
-             , mkCompSerTest ("Bla") (prettyHex . SMC.serializeSmart)
+             , mkCompSerTest "Bla" (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkCompSerTest (42 :: Int) (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest (T.pack "Text") (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest (BSC.pack "ByteString") (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkCompSerTest Test.bar (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
@@ -476,56 +483,60 @@ tests_SafeCopy
              , mkCompSerTest Test.some2 (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkSerParseTest Test.v1 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v2 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v3 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v4 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v5 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v6a SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v6b SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v7 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v8 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.some1 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.some2 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.booltest SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.booltest' SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.mybool SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.mybool' SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.maybetest1 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.maybetest2 SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.string SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.string' SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest ([1,2,3,4] :: [Int]) SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest (42 :: Int) SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest "String" SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
+             , mkSerParseTest (BSC.pack "ByteString") SMC.serializeSmart
+                    (either (fail . msg) return . SMC.parseSmart) s
+             , mkSerParseTest (T.pack "Text") SMC.serializeSmart
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest TestV2.easy SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest TestV2.some SMC.serializeSmart
-                    (\ser -> either (\a -> fail $ msg a) return (SMC.parseSmart ser)) s
+                    (either (fail . msg) return . SMC.parseSmart) s
              ]
 
-tests_Generic
+testsGeneric
     = do let s = "GHC-Generic instances"
          mkTestList
              [ mkCompSerTest Test.v5 (prettyHex . SMC.serializeUnvers)
@@ -556,22 +567,22 @@ msg a = "Failure: " ++ a
 main = do args <- getArgs
           let fmtList = ["json", "string", "xml", "sc", "binary"]
           case args of
-            "jsonVers":_ -> tests_JSON_vers
-            "jsonUnvers":_ -> tests_JSON_unvers
-            "stringUnvers":_ -> tests_String_unvers
-            "stringVers":_ -> tests_String_vers
-            "xmlUnvers":_ -> tests_Xml_unvers
-            "xmlVers":_ -> tests_Xml_vers
-            "binary":_ -> tests_Binary
-            "sc":_ -> tests_SafeCopy
-            "generic":_ -> tests_Generic
+            "jsonVers":_ -> testsJSONVers
+            "jsonUnvers":_ -> testsJSONUnvers
+            "stringUnvers":_ -> testsStringUnvers
+            "stringVers":_ -> testsStringVers
+            "xmlUnvers":_ -> testsXmlUnvers
+            "xmlVers":_ -> testsXmlVers
+            "binary":_ -> testsBinary
+            "sc":_ -> testsSafeCopy
+            "generic":_ -> testsGeneric
             _ ->
-                do tests_JSON_unvers
-                   tests_JSON_vers
-                   tests_String_unvers
-                   tests_String_vers
-                   tests_Xml_unvers
-                   tests_Xml_vers
-                   tests_Binary
-                   tests_Generic
-                   tests_SafeCopy
+                do testsJSONUnvers
+                   testsJSONVers
+                   testsStringUnvers
+                   testsStringVers
+                   testsXmlUnvers
+                   testsXmlVers
+                   testsBinary
+                   testsSafeCopy
+                   testsGeneric

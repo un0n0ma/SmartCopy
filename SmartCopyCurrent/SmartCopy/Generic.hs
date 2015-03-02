@@ -6,6 +6,7 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module SmartCopy.Generic where
 
@@ -49,12 +50,10 @@ ggetSmartPut :: forall f x m. (GSmartCopy f, Monad m)
 ggetSmartPut fmt =
 --    checkConsistency proxy $
     case gkindFromProxy proxy of
-      Primitive -> return $ \a -> gwriteSmart fmt a False 0 (Version 0)
-      _         -> do --let ver = version :: Version (f x) ---- TODO
-                      --writeVersion fmt ver
+      Primitive -> return $ \a -> gwriteSmart fmt a False 0 False
+      _         -> --let ver = version :: Version (f x) ---- TODO
                       return $ \a ->
-                          withVersion fmt (Version 0) $
-                          gwriteSmart fmt (P.asProxyTypeOf a proxy) False 0 (Version 0) -- Fix!
+                          gwriteSmart fmt (P.asProxyTypeOf a proxy) False 0 True -- Fix!
       where proxy = P.Proxy :: P.Proxy (f x)
 
 
@@ -62,12 +61,13 @@ ggetSmartPut fmt =
 -- Rep instances
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
-    gwriteSmart fmt _ _ _ _ = return ()
+    gwriteSmart fmt _ _ _ False = return ()
+    gwriteSmart fmt _ _ _ True = return ()
     greadSmart fmt = return U1
 
 instance (Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
-    gwriteSmart fmt d@(M1 x) _ _ ver
-        = gwriteSmart fmt x False 0 (castVersion ver :: Version x)
+    gwriteSmart fmt d@(M1 x) _ _ versioned
+        = gwriteSmart fmt x False 0 versioned
     greadSmart fmt = M1 <$> greadSmart fmt
 
 instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
@@ -75,12 +75,12 @@ instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) whe
         = let fields = getFields index $ selectors (P.Proxy :: P.Proxy (M1 C c f)) index
               cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
                        multCons index
-          in withCons fmt cons $ gwriteSmart fmt x multCons index (castVersion ver :: Version x)
+          in withCons fmt cons $ gwriteSmart fmt x multCons index ver
     greadSmart fmt = undefined
 
 instance (Constructor c, Selector s, GSmartCopy f)
          => GSmartCopy (M1 C c (M1 S s f)) where
-    gwriteSmart fmt con@(M1 x) multCons index _
+    gwriteSmart fmt con@(M1 x) multCons index ver
         = let fields = getFields index $ selectors (P.Proxy :: P.Proxy (M1 C c (M1 S s f))) index
               cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
                        multCons index
@@ -88,8 +88,9 @@ instance (Constructor c, Selector s, GSmartCopy f)
                                     withField fmt $ putter x
 
 instance (Selector s, GSmartCopy f) => GSmartCopy (M1 S s f) where
-    gwriteSmart fmt (M1 a) _ _ _ = do putter <- ggetSmartPut fmt
-                                      withField fmt $ putter a
+    gwriteSmart fmt (M1 a) _ _ _
+        = do putter <- ggetSmartPut fmt
+             withField fmt $ putter a
     greadSmart fmt = readField fmt $ greadSmart fmt
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
@@ -98,10 +99,10 @@ instance SmartCopy c => GSmartCopy (K1 a c) where
     greadSmart fmt = liftM K1 (readSmart fmt)
 
 instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :+: b) where
-    gwriteSmart fmt (L1 x) _ conInd v
-        = gwriteSmart fmt x True conInd (castVersion v :: Version x)
-    gwriteSmart fmt (R1 x) _ conInd v
-        = gwriteSmart fmt x True (conInd + 1) (castVersion v :: Version x)
+    gwriteSmart fmt (L1 x) _ conInd versioned
+        = gwriteSmart fmt x True conInd versioned
+    gwriteSmart fmt (R1 x) _ conInd versioned
+        = gwriteSmart fmt x True (conInd + 1) versioned
     greadSmart fmt = L1 <$> greadSmart fmt
                         <|> R1 <$> greadSmart fmt
 

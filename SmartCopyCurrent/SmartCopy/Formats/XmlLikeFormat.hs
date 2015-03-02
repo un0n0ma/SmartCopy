@@ -21,13 +21,17 @@ import SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
 import qualified Data.Text.Lazy as TL
 import qualified Text.XML as X
 
-import Data.String.UTF8 hiding (length)
+import Data.String.Utils
+--import Data.String.UTF8 hiding (length)
 
 -------------------------------------------------------------------------------
 -- STDLIB
@@ -76,14 +80,14 @@ parseUnvers = runParser (readSmart pFormatUnvers)
 
 sFormatUnvers
     = sFormat
-    { writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ -> return $ writeSmart sFormatUnvers
     , writeRepetition =
           \ar ->
-              do let value = X.Element (makeName (T.pack "value")) M.empty []
+              do let arrAttr = M.fromList [("type", "array")]
+                 let value = X.Element (makeName (T.pack "value")) M.empty []
                  case length ar of
                    0 -> do put [X.NodeElement value]
-                           lift $ put $ X.Element (makeName "PrimList") M.empty []
+                           lift $ put $ X.Element (makeName "PrimList") arrAttr []
                            return ()
                    n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
                            put $ replicate n (X.NodeElement value)
@@ -92,12 +96,15 @@ sFormatUnvers
                                                put field
                            res <- get
                            put res
-                           lift $ put $ X.Element (makeName "PrimList") M.empty res
+                           lift $ put $ X.Element (makeName "PrimList") arrAttr res
     , writeMaybe =
           \ma ->
               case ma of
                 Just a ->
-                    writeSmart sFormatUnvers a
+                    do let optAttr = M.fromList [("type", "opt")]
+                       writeSmart sFormatUnvers a
+                       el <- lift get
+                       lift $ put $ X.Element (X.elementName el) optAttr (X.elementNodes el)
                 Nothing ->
                     do put []
                        return ()
@@ -110,8 +117,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { readVersioned = id
-    , readVersion = return Nothing
+    { mkGetter = return $ readSmart pFormatUnvers
     , readRepetition =
           do nodes <- lift $ lift $ lift get
              el' <- lift $ lift get
@@ -122,12 +128,12 @@ pFormatUnvers
                          do lift $ lift $ lift $ put nodes'
                             replicateM (length nodes') (readField pFormatUnvers $
                                 readSmart pFormatUnvers)
-                     _ -> mismatch "primitive list at top-level" (show el')
+                     _ -> return []
                n -> replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
-               [] -> mismatch "field nodes" (show nodes)
+               [] -> return Nothing
                X.NodeElement el:xs ->
                    case X.elementNodes el of
                      [] -> return Nothing
@@ -135,7 +141,10 @@ pFormatUnvers
                          do put elNodes
                             lift $ lift $ lift $ put xs
                             liftM Just $ readSmart pFormatUnvers
-               _ -> mismatch "element node containing Maybe value" (show $ head nodes)
+               cont@[X.NodeContent val] ->
+                   do put cont
+                      liftM Just $ readSmart pFormatUnvers
+               _ -> mismatch "Maybe node" (show $ head nodes)
     }
 
     
@@ -146,18 +155,17 @@ pFormatUnvers
 sFormat :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormat
     = SerializationFormat
-    { writeVersion =
+    { mkPutter =
           \ver ->
-          do resEl <- lift get
-             let versEl = resEl
-                        { X.elementAttributes
-                        = M.insert (makeName (T.pack "version")) (T.pack $ show $ unVersion ver)
-                                   (X.elementAttributes resEl)}
-             lift $ put versEl
-    , withVersion =
-          \ver ma ->
-          do ma
-             writeVersion sFormat ver
+              return $ \a ->
+                  do writeSmart sFormat a
+                     resEl <- lift get
+                     let versEl = resEl
+                                { X.elementAttributes =
+                                      M.insert (makeName (T.pack "version"))
+                                               (T.pack $ show $ unVersion ver)
+                                               (X.elementAttributes resEl) }
+                     lift $ put versEl
     , withCons =
           \cons ma ->
           do let fields =
@@ -187,59 +195,42 @@ sFormat
                       lift $ put $ X.Element (X.elementName resVers) (X.elementAttributes resVers) resNodes
                _ -> mismatch "NodeElement" (show nodes)
     , writeInt =
-          \prim ->
-              case prim of
-                PrimInt i ->
-                    do let resNodes = [X.NodeContent (T.pack $ show i)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimInt") M.empty resNodes
-                _ -> mismatch "Prim Int" (show prim)
+          \i ->
+              do let resNodes = [X.NodeContent (T.pack $ show i)]
+                 put resNodes
+                 lift $ put $ X.Element (makeName $ T.pack "PrimInt") M.empty resNodes
     , writeInteger =
-          \prim ->
-              case prim of
-                PrimInteger i ->
-                    do let resNodes = [X.NodeContent (T.pack $ show i)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimInteger") M.empty resNodes
-                _ -> mismatch "Prim Integer" (show prim)
+          \i ->
+              do let resNodes = [X.NodeContent (T.pack $ show i)]
+                 put resNodes
+                 lift $ put $ X.Element (makeName $ T.pack "PrimInteger") M.empty resNodes
     , writeString =
-          \prim ->
-              case prim of
-                PrimString s ->
-                    do let resNodes = [X.NodeContent (T.pack s)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimString") M.empty resNodes
-                _ -> mismatch "Prim String" (show prim)
+          \s ->
+              do let resNodes = [X.NodeContent (T.pack s)]
+                 put resNodes
+                 lift $ put $ X.Element (makeName $ T.pack "PrimString") M.empty resNodes
     , writeDouble =
-          \prim ->
-              case prim of
-                PrimDouble d ->
-                    do let resNodes = [X.NodeContent (T.pack $ show d)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimDouble") M.empty resNodes
-                _ -> mismatch "Prim Double" (show prim)
+          \d ->
+               do let resNodes = [X.NodeContent (T.pack $ show d)]
+                  put resNodes
+                  lift $ put $ X.Element (makeName $ T.pack "PrimDouble") M.empty resNodes
     , writeBool =
-          \prim ->
-              case prim of
-                PrimBool b ->
-                    do let resNodes = [X.NodeContent (T.pack $ show b)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimBool") M.empty resNodes
-                _ -> mismatch "Prim Bool" (show prim)
+          \b ->
+               do let resNodes = [X.NodeContent (T.pack $ show b)]
+                  put resNodes
+                  lift $ put $ X.Element (makeName $ T.pack "PrimBool") M.empty resNodes
     , writeChar =
-          \prim ->
-              case prim of
-                PrimChar c ->
-                    do let resNodes = [X.NodeContent (T.pack $ show c)]
-                       put resNodes
-                       lift $ put $ X.Element (makeName $ T.pack "PrimChar") M.empty resNodes
-                _ -> mismatch "Prim Char" (show prim)
+          \c ->
+               do let resNodes = [X.NodeContent (T.pack $ show c)]
+                  put resNodes
+                  lift $ put $ X.Element (makeName $ T.pack "PrimChar") M.empty resNodes
     , writeRepetition =
           \ar ->
               do let value = X.Element (makeName (T.pack "value")) M.empty []
+                     arrAttr = M.fromList [("type", "array")]
                  case length ar of
                    0 -> do put [X.NodeElement value]
-                           lift $ put $ X.Element (makeName "PrimList") M.empty []
+                           lift $ put $ X.Element (makeName "PrimList") arrAttr []
                            return ()
                    n -> do lift $ put value
                            putter <- getSmartPut sFormat
@@ -254,16 +245,29 @@ sFormat
                                    put field
                            res <- get
                            put $ versHead++res
-                           lift $ put $ X.Element (makeName "PrimList") M.empty (versHead++res)
+                           lift $ put $ X.Element (makeName "PrimList") arrAttr (versHead++res)
     , writeMaybe =
           \ma ->
               case ma of
                 Just a ->
-                    do putter <- getSmartPut sFormat
+                    do let optAttr = M.fromList [("type", "opt")]
+                       putter <- getSmartPut sFormat
                        putter a
+                       el <- lift get
+                       lift $ put $ X.Element (X.elementName el) optAttr (X.elementNodes el)
                 Nothing ->
                     do put []
                        return ()
+    , writeBS =
+          \bs ->
+               do let resNodes = [X.NodeContent (TE.decodeUtf8 bs)]
+                  put resNodes
+                  lift $ put $ X.Element (makeName $ T.pack "PrimByteString") M.empty resNodes
+    , writeText =
+          \text ->
+               do let resNodes = [X.NodeContent text]
+                  put resNodes
+                  lift $ put $ X.Element (makeName $ T.pack "PrimText") M.empty resNodes
     }
     where makeEmptyNode text = X.NodeElement $ X.Element (makeName text) M.empty []
                      
@@ -274,31 +278,26 @@ sFormat
 pFormat :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))))
 pFormat
     = ParseFormat
-    { readVersioned = id
-    , readVersion =
+    { mkGetter =
           do nodeElems <- get
              case length nodeElems of
-               0 -> return $ Just $ Version 0
+               0 -> return $ readSmart pFormat
                n ->
-                   do let nodeElem = head nodeElems
-                      case nodeElem of
+                   do el <- pop
+                      case el of
                         X.NodeContent _ ->
-                            do put $ tail nodeElems
-                               return $ Just $ Version 0
-                        X.NodeElement el -> 
-                               do let attribs = map ((X.nameLocalName . fst) &&& snd)
-                                                (M.toList $ X.elementAttributes el)
-                                      vers = lookup (T.pack "version") attribs
-                                  case vers of
-                                    Just vText ->
-                                        case (reads . T.unpack) vText of
-                                          [(int,[])] ->
-                                              do put $ tail nodeElems
-                                                 return $ Just $ Version int
-                                          _ -> mismatch "int32 for version" (show vText)
-                                    Nothing ->
-                                        return $ Just $ Version 0
-                        _ -> mismatch "NodeContent or NodeElement" (show nodeElem)
+                            return $ readSmart pFormat
+                        X.NodeElement el ->
+                            do vers <- readVersion el
+                               case vers of
+                                 Just v ->
+                                     case constructGetterFromVersion pFormat v kind of
+                                       Right getter -> return getter
+                                       Left msg -> fail msg
+                                 Nothing ->
+                                     return $ readSmart pFormat
+                        _ -> mismatch "NodeContent or NodeElement" (show nodeElems)
+                where kind = kindFromProxy (Proxy :: Proxy a)
     , readCons =
           \cons ->
               do elem <- lift $ lift get
@@ -325,11 +324,24 @@ pFormat
                        case x of
                          X.NodeElement elem ->
                              do case X.elementNodes elem of
-                                  [] -> return ()
+                                  [] -> lift $ lift $ lift $ put []
                                   [X.NodeContent _] ->
                                       lift $ lift $ lift $ put $ X.elementNodes elem
-                                  [X.NodeElement elem'] ->
-                                      lift $ lift $ put elem'
+                                  e@[X.NodeElement elem'] ->
+                                      case M.lookup "type" (X.elementAttributes elem) of
+                                        Just "array" ->
+                                            case X.elementNodes elem' of
+                                              [] -> 
+                                                  do lift $ lift $ lift $ put []
+                                                     return ()
+                                              _ ->
+                                                  do lift $ lift $ put elem'
+                                                     lift $ lift $ lift $ put e
+                                        Just "opt" ->
+                                            do lift $ lift $ put elem'
+                                               lift $ lift $ lift $ put e
+                                        Nothing ->
+                                            lift $ lift $ put elem'
                                   nelems ->
                                       lift $ lift $ lift $ put nelems
                                 res <- ma
@@ -346,11 +358,11 @@ pFormat
                      X.Element (X.Name "PrimList" _ _) _ nodes' ->
                          do lift $ lift $ lift $ put nodes'
                             readListVals nodes'
-                     _ -> mismatch "primitive list at top-level" (show el')
+                     _ -> return []
                n -> readListVals nodes
     , readInt =
           do nodes <- lift $ lift $ lift get
-             -- Handles primitive values at toplevel (wrapped in noname-element)
+             -- Handles primitive values at toplevel, wraps vals in XML-elements
              el' <- lift $ lift get
              case length nodes of
                0 ->
@@ -404,53 +416,89 @@ pFormat
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
-               [] -> mismatch "field nodes" (show nodes)
+               [] -> return Nothing
                X.NodeElement el:xs ->
                    case X.elementNodes el of
-                     [] -> return Nothing
+                     [] -> return Nothing --  TODO: Not sure if this is correct
                      elNodes ->
                          do put nodes
                             lift $ lift $ lift $ put xs
                             getSmartGet pFormat >>= liftM Just
-               _ -> mismatch "element node containing Maybe value" (show $ head nodes)
+               cont@[X.NodeContent x] ->
+                   do put cont
+                      getSmartGet pFormat >>= liftM Just
+               _ -> mismatch "Maybe node" (show $ head nodes)
+    , readBS =
+          do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
+             case length nodes of
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimByteString" _ _) _ nodes ->
+                         liftM BSC.pack $ getStringContent nodes
+                     _ -> mismatch "primitive char at toplevel" (show el')
+               n -> liftM BSC.pack $ getStringContent nodes
+    , readText =
+          do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
+             case length nodes of
+               0 ->
+                   case el' of
+                     X.Element (X.Name "PrimText" _ _) _ nodes ->
+                         liftM T.pack $ getStringContent nodes
+                     _ -> mismatch "primitive char at toplevel" (show el')
+               n -> liftM T.pack $ getStringContent nodes
     }
     where getIntContent nodes =
               case head nodes of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
-                      [(int, [])] -> return $ PrimInt int
+                      [(int, [])] -> return int
                       _ -> mismatch "Int" (show $ head nodes)
                 _ -> mismatch "NodeContent" (show $ head nodes)
           getDoubleContent nodes =
               case head nodes of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
-                      [(double, [])] -> return $ PrimDouble double
+                      [(double, [])] -> return double
                       _ -> mismatch "Double" (show $ head nodes)
                 _ -> mismatch "NodeContent" (show $ head nodes)
           getBoolContent nodes =
                    case head nodes of
                      X.NodeContent t
-                         | T.unpack t == "True" -> return $ PrimBool True
-                         | T.unpack t == "False" -> return $ PrimBool False
+                         | T.unpack t == "True" -> return True
+                         | T.unpack t == "False" -> return False
                          | otherwise -> mismatch "Bool" (show t)
                      _ -> mismatch "NodeContent" (show $ head nodes)
           getStringContent nodes =
                    case head nodes of
                      X.NodeContent t ->
-                         return $ PrimString (T.unpack t)
+                         return $ T.unpack t
                      _ -> mismatch "NodeContent" (show $ head nodes)
           getCharContent nodes =
                    case head nodes of
                      X.NodeContent t ->
                          if T.length t == 1
-                            then return $ PrimChar $ T.head t
+                            then return $ T.head t
                             else mismatch "Char" (show t)
                      _ -> mismatch "NodeContent" (show $ head nodes)
           readListVals nodes =
                    do put nodes
                       getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
-
+          pop = do nodes <- get
+                   case length nodes of
+                     0 -> return $ X.NodeElement emptyEl
+                     n -> do { put $ tail nodes; return $ head nodes }
+          readVersion el =
+                   do let attribs = map ((X.nameLocalName . fst) &&& snd)
+                                        (M.toList $ X.elementAttributes el)
+                          vers = lookup (T.pack "version") attribs 
+                      case vers of
+                        Just vText ->
+                            case (reads . T.unpack) vText of
+                              [(int,[])] -> return $ Just $ Version int
+                              _ -> mismatch "int32 for version" (show vText)
+                        Nothing -> return Nothing
 
 
 -------------------------------------------------------------------------------

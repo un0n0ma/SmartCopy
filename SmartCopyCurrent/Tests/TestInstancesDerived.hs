@@ -25,6 +25,7 @@ data Some = Some Spam Int deriving (Show, Eq, Generic)
 data Bar = BarLeft | BarRight Foo deriving (Show, Eq, Generic)
 data Foo = Foo Int Bar deriving (Eq, Show, Generic)
 data MyBool = MyFalse | MyTrue deriving (Eq, Show, Generic)
+data MaybeTestX = MaybeTestX [Maybe Int] Bar [String] deriving (Eq, Show, Generic)
 
 instance SmartCopy Bla where version = 1
 instance SmartCopy Spam where version = 1
@@ -34,11 +35,14 @@ instance SmartCopy Some2 where version = 1
 instance SmartCopy Bar where version = 1
 instance SmartCopy Foo where version = 1
 instance SmartCopy MyBool where version = 1
+instance SmartCopy MaybeTestX where version = 1
 
 some1 = Some (Spam 1) 2
 some2 = Some2 (Spam2 1 2)
 
 bar = BarLeft
+
+maybeX = MaybeTestX [Nothing, Just 1] BarLeft ["Mal", "Wieder"]
 
 mybool = MyTrue
 mybool' = MyFalse
