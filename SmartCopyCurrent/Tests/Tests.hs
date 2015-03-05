@@ -90,6 +90,10 @@ mkCompSerTest dtype writeF1 writeF2 b s =
            sResult2 = writeF2 dtype `asTypeOf` b
        assertEqual (compTestMsg s) sResult1 sResult2
 
+mkGenericParseTest val1 val2 parseF =
+    do pres1 <- fromOk $ parseF val1
+       assertEqual ("Comparing parsing results of manual vs. derived instances") val2 pres1
+
 compareParseAeson val a =
     do pres1 <- fromOk $ J.parseUnvers val
        let Json.Success pres2 = Json.fromJSON val
@@ -536,8 +540,8 @@ testsSafeCopy
                     (either (fail . msg) return . SMC.parseSmart) s
              ]
 
-testsGeneric
-    = do let s = "GHC-Generic instances"
+testsGenericSer
+    = do let s = "GHC-Generic instances: Serialize"
          mkTestList
              [ mkCompSerTest Test.v5 (prettyHex . SMC.serializeUnvers)
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.Bla) (undefined :: String) s
@@ -559,6 +563,136 @@ testsGeneric
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.mybool) (undefined :: String) s
              , mkCompSerTest Test.mybool' (prettyHex . SMC.serializeUnvers)
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.v3 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.v3 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v7 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.some2 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.some2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.some1 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.some1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.bar J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.bar) (undefined :: Json.Value) s
+             , mkCompSerTest Test.mybool' J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.mybool') (undefined :: Json.Value) s
+             , mkCompSerTest Test.mybool J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.mybool) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v1 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v2 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v3 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v3) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v7 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v7) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v4 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v4) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v8 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.v8) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybetest1 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.maybetest1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybetest2 J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.maybetest2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybeX J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.maybeX) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v1 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v1) (undefined :: String) s
+             , mkCompSerTest Test.v2 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v2) (undefined :: String) s
+             , mkCompSerTest Test.v3 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.bar X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.bar) (undefined :: String) s
+             , mkCompSerTest Test.mybool X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.mybool) (undefined :: String) s
+             , mkCompSerTest Test.mybool' X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.some1 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.v7 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.mybool' S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.mybool S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.mybool) (undefined :: String) s
+             , mkCompSerTest Test.v1 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v1) (undefined :: String) s
+             , mkCompSerTest Test.v2 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v2) (undefined :: String) s
+             , mkCompSerTest Test.v3 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.some1 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.v7 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.maybeX) (undefined :: String) s
+             ]
+
+
+testsGenericParse
+    = do let s = "GHC-Generic instances: Parse"
+         mkTestList
+             [ mkGenericParseTest (SMC.serializeUnvers Test.v1) 
+               GTest.v1 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.v2)
+               GTest.v2 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.v3)
+               GTest.v3 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.v4)
+               GTest.v4 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.v8)
+               GTest.v8 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (J.serializeUnvers Test.v1)
+               GTest.v1 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.v2)
+               GTest.v2 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.v3)
+               GTest.v3 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.v4)
+               GTest.v4 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.v8)
+               GTest.v8 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.mybool)
+               GTest.mybool J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.maybetest1)
+               GTest.maybetest1 J.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.maybetest1)
+               GTest.maybetest1 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.v1)
+               GTest.v1 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.v2)
+               GTest.v2 X.parseUnvers
              ]
 
 msg a = "Failure: " ++ a
@@ -575,7 +709,8 @@ main = do args <- getArgs
             "xmlVers":_ -> testsXmlVers
             "binary":_ -> testsBinary
             "sc":_ -> testsSafeCopy
-            "generic":_ -> testsGeneric
+            "genericS":_ -> testsGenericSer
+            "genericP":_ -> testsGenericParse
             _ ->
                 do testsJSONUnvers
                    testsJSONVers
@@ -585,4 +720,5 @@ main = do args <- getArgs
                    testsXmlVers
                    testsBinary
                    testsSafeCopy
-                   testsGeneric
+                   testsGenericParse
+                   testsGenericSer

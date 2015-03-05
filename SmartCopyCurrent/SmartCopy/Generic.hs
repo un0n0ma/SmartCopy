@@ -50,10 +50,11 @@ ggetSmartPut :: forall f x m. (GSmartCopy f, Monad m)
 ggetSmartPut fmt =
 --    checkConsistency proxy $
     case gkindFromProxy proxy of
-      Primitive -> return $ \a -> gwriteSmart fmt a False 0 False
+      Primitive -> return $ \a -> gwriteSmart fmt a False 0 False Empty
       _         -> --let ver = version :: Version (f x) ---- TODO
                       return $ \a ->
-                          gwriteSmart fmt (P.asProxyTypeOf a proxy) False 0 True -- Fix!
+                          gwriteSmart fmt (P.asProxyTypeOf a proxy) False 0 True Empty
+                          -- Fix!
       where proxy = P.Proxy :: P.Proxy (f x)
 
 
@@ -61,58 +62,113 @@ ggetSmartPut fmt =
 -- Rep instances
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
-    gwriteSmart fmt _ _ _ False = return ()
-    gwriteSmart fmt _ _ _ True = return ()
-    greadSmart fmt = return U1
+    gwriteSmart fmt _ _ _ False _ = return ()
+    gwriteSmart fmt _ _ _ True _ = return ()
+    greadSmart fmt _ _ = return U1
 
 instance (Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
-    gwriteSmart fmt d@(M1 x) _ _ versioned
-        = gwriteSmart fmt x False 0 versioned
-    greadSmart fmt = M1 <$> greadSmart fmt
+    gwriteSmart fmt d@(M1 x) _ _ versioned _
+        = gwriteSmart fmt x False 0 versioned Empty
+    greadSmart fmt _ ver = M1 <$> greadSmart fmt [] ver
 
 instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
-    gwriteSmart fmt con@(M1 x) multCons index ver
-        = let fields = getFields index $ selectors (P.Proxy :: P.Proxy (M1 C c f)) index
-              cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
-                       multCons index
-          in withCons fmt cons $ gwriteSmart fmt x multCons index ver
-    greadSmart fmt = undefined
-
-instance (Constructor c, Selector s, GSmartCopy f)
-         => GSmartCopy (M1 C c (M1 S s f)) where
-    gwriteSmart fmt con@(M1 x) multCons index ver
-        = let fields = getFields index $ selectors (P.Proxy :: P.Proxy (M1 C c (M1 S s f))) index
-              cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields
-                       multCons index
-          in withCons fmt cons $ do putter <- ggetSmartPut fmt
-                                    withField fmt $ putter x
+    gwriteSmart fmt con@(M1 x) multCons index ver fields
+        = do fields' <-
+                 if multCons
+                    then return fields
+                    else getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
+             let index'
+                   | multCons
+                   = index
+                   | otherwise
+                   = 0
+             let cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields'
+                          multCons index'
+             withCons fmt cons $ gwriteSmart fmt x multCons index' ver fields'
+    greadSmart fmt [] ver
+        = do fields <- getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
+             let cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields False 0
+             readCons fmt [(cons, M1 <$> greadSmart fmt [] ver)]
+    greadSmart fmt conList ver
+        = readCons fmt $ zip conList $ repeat (M1 <$> greadSmart fmt [] ver)
 
 instance (Selector s, GSmartCopy f) => GSmartCopy (M1 S s f) where
-    gwriteSmart fmt (M1 a) _ _ _
-        = do putter <- ggetSmartPut fmt
-             withField fmt $ putter a
-    greadSmart fmt = readField fmt $ greadSmart fmt
+    gwriteSmart fmt (M1 a) multCons conInd vers fields
+        = withField fmt $ gwriteSmart fmt a multCons conInd vers fields
+    greadSmart fmt _ ver
+        = readField fmt $ M1 <$> greadSmart fmt [] ver
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
---    gversion = castVersion (versionFromProxy (Proxy :: Proxy c)) -- TODO
-    gwriteSmart fmt (K1 a) _ _ _ = writeSmart fmt a
-    greadSmart fmt = liftM K1 (readSmart fmt)
+    gwriteSmart fmt (K1 a) _ _ _ _ = writeSmart fmt a
+    greadSmart fmt _ _ = liftM K1 (readSmart fmt)
 
-instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :+: b) where
-    gwriteSmart fmt (L1 x) _ conInd versioned
-        = gwriteSmart fmt x True conInd versioned
-    gwriteSmart fmt (R1 x) _ conInd versioned
-        = gwriteSmart fmt x True (conInd + 1) versioned
-    greadSmart fmt = L1 <$> greadSmart fmt
-                        <|> R1 <$> greadSmart fmt
+instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmartCopy b)
+         => GSmartCopy (a :+: b) where
+    gwriteSmart fmt (L1 x) _ conInd versioned fields
+        = do let sels = selectors (P.Proxy :: P.Proxy (a :+: b)) conInd
+             fields1 <- getFields conInd sels
+             fields2 <- getFields (conInd + 1) sels
+             let fields'
+                   | fields1 == Empty && fields2 == Empty
+                   = Empty
+                   | fields1 == Empty && fields2 /= Empty
+                   = NF 0
+                   | otherwise
+                   = fields1
+             gwriteSmart fmt x True conInd versioned fields'
+    gwriteSmart fmt (R1 x) _ conInd versioned fields
+        = do let sels = selectors (P.Proxy :: P.Proxy (a :+: b)) conInd
+             fields1 <- getFields conInd sels
+             fields2 <- getFields (conInd + 1) sels
+             let fields'
+                   | fields1 == Empty && fields2 == Empty
+                   = Empty
+                   | fields1 /= Empty && fields2 == Empty
+                   = NF 0
+                   | otherwise
+                   = fields2
+             gwriteSmart fmt x True (conInd + 1) versioned fields'
+    greadSmart fmt conList ver
+        = do let cindex1
+                   | null conList
+                   = 0
+                   | otherwise
+                   = cindex (last conList) + 2
+                 cindex2
+                   | null conList
+                   = 1
+                   | otherwise
+                   = cindex (last conList) + 2
+                 sels = selectors (P.Proxy :: P.Proxy (a :+: b)) 0
+             fields1 <- getFields cindex1 sels
+             fields2 <- getFields cindex2 sels
+             let fields1'
+                   | fields1 == Empty && fields2 == Empty
+                   = Empty
+                   | fields1 /= Empty && fields2 == Empty
+                   = NF 0
+                   | otherwise
+                   = fields1
+                 fields2'
+                   | fields1 == Empty && fields2 == Empty
+                   = Empty
+                   | fields1 == Empty && fields2 == Empty
+                   = NF 0
+                   | otherwise
+                   = fields2
+                 cname1 = T.pack $ gconNameOf (undefined :: a f)
+                 cname2 = T.pack $ gconNameOf (undefined :: b f)
+                 cList1 = [C cname1 fields1' True cindex1]
+                 cList2 = [C cname2 fields2' True cindex2]
+                 cList = cList1 ++ cList2
+             L1 <$> greadSmart fmt cList1 ver <|> R1 <$> greadSmart fmt cList2 ver
 
 instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :*: b) where
-    gwriteSmart fmt (a :*: b) _ _ _
-        = do putterA <- ggetSmartPut fmt
-             putterB <- ggetSmartPut fmt
-             withField fmt (putterA a)
-             withField fmt (putterB b)
-    greadSmart fmt = (:*:) <$> readField fmt (greadSmart fmt) <*> readField fmt (greadSmart fmt)
+    gwriteSmart fmt (a :*: b) multCons conInd vers fields
+        = do gwriteSmart fmt a multCons conInd vers fields
+             gwriteSmart fmt b multCons conInd vers fields
+    greadSmart fmt conList ver
+        = (:*:) <$> greadSmart fmt [] ver <*> greadSmart fmt [] ver
 
 -------------------------------------------------------------------------------
 -- Helper functions for Reps
@@ -130,10 +186,10 @@ class Selectors (rep :: * -> *) where
 instance (Selectors f, Constructor c) => Selectors (M1 C c f) where
     selectors proxy conInd = selectors (P.Proxy :: P.Proxy f) conInd
 
-instance (Constructor c, Selectors b, Selectors f) => Selectors ((M1 C c f) :+: b) where
-    selectors proxy index =
-        selectors (P.Proxy :: P.Proxy f) index ++
-        selectors (P.Proxy :: P.Proxy b) (index + 1)
+instance (Selectors a, Selectors b) => Selectors (a :+: b) where
+    selectors proxy conInd =
+        selectors (P.Proxy :: P.Proxy a) conInd ++
+        selectors (P.Proxy :: P.Proxy b) (conInd + 1)
 
 instance Selector s => Selectors (M1 S s (K1 R t)) where
     selectors _ conInd =
@@ -144,18 +200,28 @@ instance Selector s => Selectors (M1 S s f) where
         [(conInd, [selName (undefined :: M1 S s f x)])]
 
 instance (Selectors a, Selectors b) => Selectors (a :*: b) where
-    selectors _ conInd = selectors (P.Proxy :: P.Proxy a) conInd ++ selectors (P.Proxy :: P.Proxy b) conInd
+    selectors _ conInd =
+        let sels = map snd (selectors (P.Proxy :: P.Proxy a) conInd) ++
+                   map snd (selectors (P.Proxy :: P.Proxy b) conInd)
+        in [(conInd, concat sels)]
 
 instance Selectors U1 where
-    selectors _ _ = []
+    selectors _ conInd = [(conInd, [])]
 
-getFields :: Integer -> [(Integer, [String])] -> Fields
-getFields _ [] = Empty
+getFields :: Monad m => Integer -> [(Integer, [String])] -> m Fields
+getFields _ [] = return Empty
 getFields conInd sels
-    = let Just (x:xs) = lookup conInd sels in
-      case x of
-          "" -> NF (length (x:xs))
-          string -> LF $ map T.pack (x:xs)
+    = let conFields = lookup conInd sels in
+      case conFields of
+        Just [] ->
+            return Empty
+        Just (x:xs) ->
+            case x of
+              "" -> return $ NF (length (x:xs))
+              string -> return $ LF $ map T.pack (x:xs)
+        Nothing ->
+            fail $ "Didn't find fields for constructor index " ++
+                   (show conInd) ++ " in " ++ (show sels)
     
 getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
 getConNames = map T.pack . conNames

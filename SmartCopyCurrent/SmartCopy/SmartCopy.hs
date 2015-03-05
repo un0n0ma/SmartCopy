@@ -30,7 +30,6 @@ module SmartCopy.SmartCopy
        , base
        , extension
        , primitive
-       , Prim (..)
        , Version (..)
        , Kind (..)
        , Reverse
@@ -82,10 +81,10 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = gwriteSmart fmt (from a) False 0 False
+        = gwriteSmart fmt (from a) False 0 False Empty
         --  (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m a
-    readSmart fmt = fmap to (greadSmart fmt)
+    readSmart fmt = fmap to (greadSmart fmt [] False)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
                       => ParseFormat m -> m a
 
@@ -100,10 +99,12 @@ class GSmartCopy t where
                 -> Bool --- Sum type?
                 -> Integer -- Constructor index
                 -> Bool --- Versioned?
-    --            -> Version (t x)
+                -> Fields
                 -> m ()
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
+               -> [Cons] -- ConList
+               -> Bool -- Versioned?
                -> m (t x)
 
 
@@ -180,17 +181,11 @@ data Cons
 
 data Fields = NF Int
             | LF [Label]
-            | Empty --- Empty is for types where no constructor has fields (differently represented in JSON than Cons .. 0 .. ..)
+            | Empty
+    deriving (Show, Eq)
+            --- Empty is for types where no constructor has fields (differently represented in JSON than Cons .. 0 .. ..)
 
 type Label = T.Text
-
-data Prim = PrimInt Int
-          | PrimInteger Integer
-          | PrimChar Char
-          | PrimString String
-          | PrimBool Bool
-          | PrimDouble Double
-          deriving (Show, Read)
 
 
 -------------------------------------------------------------------------------

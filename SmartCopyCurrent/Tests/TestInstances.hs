@@ -137,6 +137,26 @@ SC.deriveSafeCopy 1 'SC.base ''Easy
 -- SmartCopy instances
 ----------------------
 
+instance SmartCopy MaybeTestX where
+    version = 1
+    readSmart fmt =
+        readCons fmt [(C "MaybeTestX" (NF 3) False 0, readFields)]
+        where readFields = do get1 <- getSmartGet fmt
+                              get2 <- getSmartGet fmt
+                              get3 <- getSmartGet fmt
+                              l1 <- readField fmt get1
+                              b <- readField fmt get2
+                              l2 <- readField fmt get3
+                              return $ MaybeTestX l1 b l2
+    writeSmart fmt (MaybeTestX l1 b l2) =
+        withCons fmt (C "MaybeTestX" (NF 3) False 0) withFields
+        where withFields = do put1 <- getSmartPut fmt
+                              put2 <- getSmartPut fmt
+                              put3 <- getSmartPut fmt
+                              withField fmt $ put1 l1
+                              withField fmt $ put2 b
+                              withField fmt $ put3 l2
+
 instance SmartCopy MaybeTest where
     version = 1
     readSmart fmt =
@@ -495,6 +515,8 @@ booltest' = BoolTestLong [True, False, True, True] False ["t", "e", "st!"]
 maybetest1 = MaybeTest 42 (Just (BarRight (Foo 41 BarLeft)))
 
 maybetest2 = MaybeTest 23 Nothing
+
+maybeX = MaybeTestX [Nothing, Just 1] BarLeft ["Mal", "Wieder"]
 
 ---- Json Values
 
