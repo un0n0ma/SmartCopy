@@ -29,9 +29,9 @@ import System.Environment
 -- STDLIB
 -------------------------------------------------------------------------------
 import "mtl" Control.Monad.Reader hiding (sequence)
+
 import Control.Applicative
 import Control.Monad
-
 
 data Some = Some Spam Int deriving (Eq, Show, Generic)
 data Some2 = Some2 Spam2 deriving (Eq, Show, Generic)

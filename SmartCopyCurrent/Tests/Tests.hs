@@ -673,6 +673,10 @@ testsGenericParse
                GTest.v4 (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.v8)
                GTest.v8 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.maybetest1)
+               GTest.maybetest1 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.mybool)
+               GTest.mybool (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (J.serializeUnvers Test.v1)
                GTest.v1 J.parseUnvers
              , mkGenericParseTest (J.serializeUnvers Test.v2)
@@ -693,6 +697,16 @@ testsGenericParse
                GTest.v1 X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.v2)
                GTest.v2 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.v3)
+               GTest.v3 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.v4)
+               GTest.v4 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.v8)
+               GTest.v8 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.mybool)
+               GTest.mybool X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.maybetest1)
+               GTest.maybetest1 X.parseUnvers
              ]
 
 msg a = "Failure: " ++ a

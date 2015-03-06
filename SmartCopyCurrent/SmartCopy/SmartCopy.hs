@@ -178,6 +178,7 @@ data Cons
     , ctagged :: Bool
     , cindex :: Integer
     }
+    deriving (Show, Eq)
 
 data Fields = NF Int
             | LF [Label]
