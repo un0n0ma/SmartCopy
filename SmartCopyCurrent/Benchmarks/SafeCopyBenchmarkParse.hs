@@ -22,90 +22,90 @@ main = defaultMain
            [ bgroup "Parse versioned: Nested datatypes"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Some2)
-               (SMC.serializeSmart (Test.some2)))
+               (SMC.serializeSmart Test.some2))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.Some2)
-               (B.runPut $ SC.safePut (Test.some2)))
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.Some2)
+               (B.runPut $ SC.safePut Test.some2))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Some)
-               (SMC.serializeSmart (Test.some1)))
+               (SMC.serializeSmart Test.some1))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.Some)
-               (B.runPut $ SC.safePut (Test.some1)))
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.Some)
+               (B.runPut $ SC.safePut Test.some1))
              ]
            , bgroup "Parse versioned: Datatypes with no fields"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Bar)
-               (SMC.serializeSmart (Test.bar)))
+               (SMC.serializeSmart Test.bar))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.Bar)
-               (B.runPut $ SC.safePut (Test.bar)))
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.Bar)
+               (B.runPut $ SC.safePut Test.bar))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Bla)
-               (SMC.serializeSmart (Test.Bla)))
+               (SMC.serializeSmart Test.Bla))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.Bla)
-               (B.runPut $ SC.safePut (Test.Bla)))
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.Bla)
+               (B.runPut $ SC.safePut Test.Bla))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.MyBool)
-               (SMC.serializeSmart (Test.mybool)))
+               (SMC.serializeSmart Test.mybool))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.MyBool)
-               (B.runPut $ SC.safePut (Test.mybool)))
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.MyBool)
+               (B.runPut $ SC.safePut Test.mybool))
              ]
            , bgroup "Parse versioned: Primitives"
              [ bench "SmartCopy" (whnf (SMC.parseSmart :: BS.ByteString -> Either String Int)
                (SMC.serializeSmart (42 :: Int)))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Int)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Int)
                (B.runPut $ SC.safePut (42 :: Int)))
              , bench "SmartCopy" (whnf (SMC.parseSmart :: BS.ByteString -> Either String String)
                (SMC.serializeSmart ("Benchmark" :: String)))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String String)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String String)
                (B.runPut $ SC.safePut ("Benchmark" :: String)))
              , bench "SmartCopy" (whnf (SMC.parseSmart :: BS.ByteString -> Either String [Int])
                (SMC.serializeSmart ([1,2,3,4] :: [Int])))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String [Int])
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String [Int])
                (B.runPut $ SC.safePut ([1,2,3,4] :: [Int])))
              ]
            , bgroup "Parse versioned: Array types"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.ArrType)
-               (SMC.serializeSmart (Test.v6a)))
+               (SMC.serializeSmart Test.v6a))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.ArrType)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.ArrType)
                (B.runPut $ SC.safePut Test.v6a))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.ArrTypeBar)
-               (SMC.serializeSmart (Test.v7)))
+               (SMC.serializeSmart Test.v7))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.ArrTypeBar)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.ArrTypeBar)
                (B.runPut $ SC.safePut Test.v7))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.ArrTypeFooBar)
-               (SMC.serializeSmart (Test.v8)))
+               (SMC.serializeSmart Test.v8))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.ArrTypeFooBar)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.ArrTypeFooBar)
                (B.runPut $ SC.safePut Test.v8))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.StringTest)
-               (SMC.serializeSmart (Test.string)))
+               (SMC.serializeSmart Test.string))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.StringTest)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.StringTest)
                (B.runPut $ SC.safePut Test.string))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.StringTest2)
-               (SMC.serializeSmart (Test.string')))
+               (SMC.serializeSmart Test.string'))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.StringTest2)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.StringTest2)
                (B.runPut $ SC.safePut Test.string'))
              , bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.BoolTestLong)
-               (SMC.serializeSmart (Test.booltest')))
+               (SMC.serializeSmart Test.booltest'))
              , bench "SafeCopy"
-               (whnf ((B.runGet $ SC.safeGet) :: BS.ByteString -> Either String Test.BoolTestLong)
+               (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.BoolTestLong)
                (B.runPut $ SC.safePut Test.booltest'))
              ]
            ]

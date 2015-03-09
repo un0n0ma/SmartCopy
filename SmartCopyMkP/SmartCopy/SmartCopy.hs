@@ -87,9 +87,9 @@ class SmartCopy a where
         = gwriteSmart fmt (from a) False 0 False Empty
         --  (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
+    readSmart fmt = fmap (either Left (Right . to)) (greadSmart fmt [] False)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
                       => ParseFormat m -> m (Either String a)
-    readSmart fmt = fmap (fmap to) (greadSmart fmt [] False)
 
 
 class GSmartCopy t where
@@ -165,6 +165,7 @@ mismatchFail exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
 conLookupErr :: Monad m => forall a. String -> String -> m (Either String a)
 conLookupErr exp list = return $ Left $ concat [ "Didn't find constructor tag "
                                                , exp, " in list ", list ]
+
 noCons :: Monad m => forall a. m (Either String a)
 noCons = return $ Left "No constructor found during look-up."
 
@@ -371,14 +372,14 @@ constructGetterFromVersion fmt diskV origK =
             Base -> Left $ vNotFound (show thisV)
             Extends bProxy ->
                 do previousGetter <- worker fmt fwd (castVersion diskV) (kindFromProxy bProxy)
-                   return $ fmap (fmap migrate) previousGetter
+                   return $ fmap (either Left (Right . migrate)) previousGetter
             Extended{} | fwd -> Left $ vNotFound (show thisV)
             Extended aKind ->
                 do let revProxy :: Proxy (MigrateFrom (Reverse a))
                        revProxy = Proxy
                        forwardGetter :: Either String (m (Either String a))
                        forwardGetter
-                           = fmap (fmap (unReverse . migrate)) <$>
+                           = fmap (either Left (Right . unReverse . migrate)) <$>
                              worker fmt True (castVersion thisV) (kindFromProxy revProxy)
                        previousGetter :: Either String (m (Either String a))
                        previousGetter = worker fmt fwd (castVersion thisV) aKind

@@ -45,13 +45,6 @@ fromEitherM ma
            Right a -> return a
            Left msg -> fail msg
 
-eitherFailM :: Monad m => m (Either String a) -> m (Fail a)
-eitherFailM ma
-    = do res <- ma
-         case res of
-           Right a -> return $ Ok a
-           Left msg -> fail msg
-
 instance Functor Fail where
     fmap f (Ok a) = Ok $ f a
     fmap f (Fail msg) = Fail msg

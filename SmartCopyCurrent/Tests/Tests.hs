@@ -92,7 +92,7 @@ mkCompSerTest dtype writeF1 writeF2 b s =
 
 mkGenericParseTest val1 val2 parseF =
     do pres1 <- fromOk $ parseF val1
-       assertEqual ("Comparing parsing results of manual vs. derived instances") val2 pres1
+       assertEqual "Comparing parsing results of manual vs. derived instances" val2 pres1
 
 compareParseAeson val a =
     do pres1 <- fromOk $ J.parseUnvers val
@@ -129,6 +129,7 @@ testsJSONVers
              , mkSerParseTest Test.mybool' J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.maybetest1 J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.maybetest2 J.serializeSmart J.parseSmart s
+             , mkSerParseTest Test.maybeX J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.string J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.string' J.serializeSmart J.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) J.serializeSmart J.parseSmart s
@@ -234,6 +235,7 @@ testsStringUnvers
              , mkSerParseTest Test.mybool' S.serializeUnvers S.parseUnvers s
              , mkSerParseTest Test.maybetest1 S.serializeUnvers S.parseUnvers s
              , mkSerParseTest Test.maybetest2 S.serializeUnvers S.parseUnvers s
+             , mkSerParseTest Test.maybeX S.serializeUnvers S.parseUnvers s
              , mkSerParseTest Test.string S.serializeUnvers S.parseUnvers s
              , mkSerParseTest Test.string' S.serializeUnvers S.parseUnvers s
              , mkSerParseTest ([1,2,3,4] :: [Int]) S.serializeUnvers S.parseUnvers s 
@@ -277,6 +279,7 @@ testsStringVers
              , mkSerParseTest Test.mybool' S.serializeSmart S.parseSmart s
              , mkSerParseTest Test.maybetest1 S.serializeSmart S.parseSmart s
              , mkSerParseTest Test.maybetest2 S.serializeSmart S.parseSmart s
+             , mkSerParseTest Test.maybeX S.serializeSmart S.parseSmart s
              , mkSerParseTest Test.string S.serializeSmart S.parseSmart s
              , mkSerParseTest Test.string' S.serializeSmart S.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) S.serializeSmart S.parseSmart s 
@@ -579,6 +582,14 @@ testsGenericSer
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.maybetest2) (undefined :: String) s
              , mkCompSerTest Test.maybeX (prettyHex . SMC.serializeUnvers)
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.booltest' (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.booltest') (undefined :: String) s
+             , mkCompSerTest Test.string (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' (prettyHex . SMC.serializeUnvers)
+                   (\_ -> prettyHex $ SMC.serializeUnvers GTest.string') (undefined :: String) s
              , mkCompSerTest Test.some2 J.serializeUnvers
                    (\_ -> J.serializeUnvers GTest.some2) (undefined :: Json.Value) s
              , mkCompSerTest Test.some1 J.serializeUnvers
@@ -607,6 +618,14 @@ testsGenericSer
                    (\_ -> J.serializeUnvers GTest.maybetest2) (undefined :: Json.Value) s
              , mkCompSerTest Test.maybeX J.serializeUnvers
                    (\_ -> J.serializeUnvers GTest.maybeX) (undefined :: Json.Value) s
+             , mkCompSerTest Test.booltest J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.booltest) (undefined :: Json.Value) s
+             , mkCompSerTest Test.booltest' J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.booltest') (undefined :: Json.Value) s
+             , mkCompSerTest Test.string J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.string) (undefined :: Json.Value) s
+             , mkCompSerTest Test.string' J.serializeUnvers
+                   (\_ -> J.serializeUnvers GTest.string') (undefined :: Json.Value) s
              , mkCompSerTest Test.v1 X.serializeUnvers
                    (\_ -> X.serializeUnvers GTest.v1) (undefined :: String) s
              , mkCompSerTest Test.v2 X.serializeUnvers
@@ -633,6 +652,14 @@ testsGenericSer
                    (\_ -> X.serializeUnvers GTest.maybetest2) (undefined :: String) s
              , mkCompSerTest Test.maybeX X.serializeUnvers
                    (\_ -> X.serializeUnvers GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.booltest' X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.booltest') (undefined :: String) s
+             , mkCompSerTest Test.string X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' X.serializeUnvers
+                   (\_ -> X.serializeUnvers GTest.string') (undefined :: String) s
              , mkCompSerTest Test.mybool' S.serializeUnvers
                    (\_ -> S.serializeUnvers GTest.mybool') (undefined :: String) s
              , mkCompSerTest Test.mybool S.serializeUnvers
@@ -657,6 +684,12 @@ testsGenericSer
                    (\_ -> S.serializeUnvers GTest.maybetest2) (undefined :: String) s
              , mkCompSerTest Test.maybeX S.serializeUnvers
                    (\_ -> S.serializeUnvers GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.string S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' S.serializeUnvers
+                   (\_ -> S.serializeUnvers GTest.string') (undefined :: String) s
              ]
 
 
@@ -675,8 +708,20 @@ testsGenericParse
                GTest.v8 (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.maybetest1)
                GTest.maybetest1 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.maybetest2)
+               GTest.maybetest2 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.maybeX)
+               GTest.maybeX (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.mybool)
                GTest.mybool (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.booltest)
+               GTest.booltest (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.booltest')
+               GTest.booltest' (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.string)
+               GTest.string (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.string')
+               GTest.string' (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (J.serializeUnvers Test.v1)
                GTest.v1 J.parseUnvers
              , mkGenericParseTest (J.serializeUnvers Test.v2)
@@ -689,10 +734,38 @@ testsGenericParse
                GTest.v8 J.parseUnvers
              , mkGenericParseTest (J.serializeUnvers Test.mybool)
                GTest.mybool J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.BarLeft)
+               GTest.BarLeft J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.mybool')
+               GTest.mybool' J.parseUnvers
              , mkGenericParseTest (J.serializeUnvers Test.maybetest1)
                GTest.maybetest1 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.maybeX)
+               GTest.maybeX J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.maybetest2)
+               GTest.maybetest2 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.booltest)
+               GTest.booltest J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.booltest')
+               GTest.booltest' J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.string)
+               GTest.string J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.string')
+               GTest.string' J.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.maybetest1)
                GTest.maybetest1 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.maybeX)
+               GTest.maybeX X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.booltest)
+               GTest.booltest X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.booltest')
+               GTest.booltest' X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.maybetest2)
+               GTest.maybetest2 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.string)
+               GTest.string X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.string')
+               GTest.string' X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.v1)
                GTest.v1 X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.v2)
@@ -707,6 +780,34 @@ testsGenericParse
                GTest.mybool X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.maybetest1)
                GTest.maybetest1 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.maybetest2)
+               GTest.maybetest2 X.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.v1)
+               GTest.v1 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.v2)
+               GTest.v2 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.v3)
+               GTest.v3 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.v4)
+               GTest.v4 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.v8)
+               GTest.v8 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.mybool)
+               GTest.mybool S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.maybetest1)
+               GTest.maybetest1 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.maybetest2)
+               GTest.maybetest2 S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.string)
+               GTest.string S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.string')
+               GTest.string' S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.booltest)
+               GTest.booltest S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.booltest')
+               GTest.booltest' S.parseUnvers
+             , mkGenericParseTest (S.serializeUnvers Test.maybeX)
+               GTest.maybeX S.parseUnvers
              ]
 
 msg a = "Failure: " ++ a

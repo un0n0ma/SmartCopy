@@ -66,16 +66,16 @@ instance SmartCopy EasyV2 where
     version = 2
     kind = extension
     readSmart fmt =
-        readCons fmt [(C "EasyV2" (NF 2) False 0, readEasy)]
+        readCons fmt [(C "EasyV2" (NF 2) False 0 False, readEasy)]
         where
             readEasy =
                 do get1 <- getSmartGet fmt
                    get2 <- getSmartGet fmt
-                   f1 <- readField fmt get1
-                   f2 <- readField fmt get2
-                   return $ EasyV2 f1 f2
+                   f1 <- readField fmt get1 >>= either fail return
+                   f2 <- readField fmt get2 >>= either fail return
+                   return $ Right $ EasyV2 f1 f2
     writeSmart fmt (EasyV2 int string) =
-        withCons fmt (C "EasyV2" (NF 2) False 0) writeFields
+        withCons fmt (C "EasyV2" (NF 2) False 0 False) writeFields
         where
             writeFields =
                 do put1 <- getSmartPut fmt
@@ -87,19 +87,20 @@ instance SmartCopy SomeV2 where
     version = 2
     kind = extension
     readSmart fmt =
-        readCons fmt [(C "SomeV2" (NF 1) False 0, readSpam)]
+        readCons fmt [(C "SomeV2" (NF 1) False 0 False, readSpam)]
         where
             readSpam =
-                do sp <- readField fmt $ smartGet fmt
-                   return $ SomeV2 sp
+                do getSpam <- getSmartGet fmt
+                   sp <- readField fmt getSpam >>= either fail return
+                   return $ Right $ SomeV2 sp
     writeSmart fmt (SomeV2 sp) =
-        withCons fmt (C "SomeV2" (NF 1) False 0) $ withField fmt $ smartPut fmt sp
+        withCons fmt (C "SomeV2" (NF 1) False 0 False) $ withField fmt $ smartPut fmt sp
 
 instance SmartCopy SomeV1 where
     version = 1
     kind = base
     writeSmart fmt (SomeV1 spam int) =
-        withCons fmt (C "SomeV1" (NF 2) False 0) writeFields
+        withCons fmt (C "SomeV1" (NF 2) False 0 False) writeFields
         where
             writeFields =
                 do putter1 <- getSmartPut fmt
@@ -107,12 +108,12 @@ instance SmartCopy SomeV1 where
                    withField fmt (putter1 spam)
                    withField fmt (putter2 int)
     readSmart fmt =
-        readCons fmt [(C "SomeV1" (NF 2) False 0, readSome)]
+        readCons fmt [(C "SomeV1" (NF 2) False 0 False, readSome)]
         where readSome = do getSpam <- getSmartGet fmt
                             getInt <- getSmartGet fmt
-                            spam <- readField fmt getSpam
-                            int <- readField fmt getInt
-                            return $ SomeV1 spam int
+                            spam <- readField fmt getSpam >>= either fail return
+                            int <- readField fmt getInt >>= either fail return
+                            return $ Right $ SomeV1 spam int
 
 
 instance Migrate EasyV2 where

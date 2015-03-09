@@ -72,7 +72,7 @@ instance (Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
     gwriteSmart fmt d@(M1 x) _ _ versioned _
         = gwriteSmart fmt x False 0 versioned Empty
     greadSmart fmt _ ver
-        = liftM (fmap M1) $ greadSmart fmt [] ver
+        = liftM (either Left (Right . M1)) $ greadSmart fmt [] ver
 
 instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
     gwriteSmart fmt con@(M1 x) multCons index ver fields
@@ -91,20 +91,20 @@ instance (Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) whe
     greadSmart fmt [] ver
         = do fields <- getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
              let cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields False 0 True
-             readCons fmt [(cons, liftM (fmap M1) $ greadSmart fmt [] ver)]
+             readCons fmt [(cons, liftM (either Left (Right . M1)) $ greadSmart fmt [] ver)]
     greadSmart fmt conList ver
         = readCons fmt $ zip conList $ repeat $
-          liftM (fmap M1) $ greadSmart fmt [] ver
+          liftM (either Left (Right . M1)) $ greadSmart fmt [] ver
 
 instance (Selector s, GSmartCopy f) => GSmartCopy (M1 S s f) where
     gwriteSmart fmt (M1 a) multCons conInd vers fields
         = withField fmt $ gwriteSmart fmt a multCons conInd vers fields
     greadSmart fmt _ ver
-        = readField fmt $ liftM (fmap M1) $ greadSmart fmt [] ver
+        = readField fmt $ liftM (either Left (Right . M1)) $ greadSmart fmt [] ver
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
     gwriteSmart fmt (K1 a) _ _ _ _ = writeSmart fmt a
-    greadSmart fmt _ _ = liftM (fmap K1) $ readSmart fmt
+    greadSmart fmt _ _ = liftM (either Left (Right . K1)) $ readSmart fmt
 
 instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmartCopy b)
          => GSmartCopy (a :+: b) where
@@ -169,8 +169,8 @@ instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmart
                  cList2 = [C cname2 fields2' True cindex2 True, emptyCons]
                  cList = cList1 ++ cList2
              withLookahead fmt cindex1
-               (liftM (fmap L1) $ greadSmart fmt cList1 ver)
-               (liftM (fmap R1) $ greadSmart fmt cList2 ver)
+               (liftM (either Left (Right . L1)) $ greadSmart fmt cList1 ver)
+               (liftM (either Left (Right . R1)) $ greadSmart fmt cList2 ver)
 
 instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :*: b) where
     gwriteSmart fmt (a :*: b) multCons conInd vers fields
@@ -181,7 +181,7 @@ instance (GSmartCopy a, GSmartCopy b) => GSmartCopy (a :*: b) where
              case res1 of
                Left msg -> return $ Left msg
                Right r ->
-                   liftM (fmap ((:*:) r)) $ greadSmart fmt [] ver
+                   liftM (either Left (Right . (:*:) r)) $ greadSmart fmt [] ver
 
 -------------------------------------------------------------------------------
 -- Helper functions for Reps
@@ -197,7 +197,7 @@ class Selectors (rep :: * -> *) where
     selectors :: P.Proxy rep -> Integer -> [(Integer, [String])]
 
 instance (Selectors f, Constructor c) => Selectors (M1 C c f) where
-    selectors proxy = selectors (P.Proxy :: P.Proxy f)
+    selectors proxy conInd = selectors (P.Proxy :: P.Proxy f) conInd
 
 instance (Selectors a, Selectors b) => Selectors (a :+: b) where
     selectors proxy conInd =
@@ -234,7 +234,7 @@ getFields conInd sels
               string -> return $ LF $ map T.pack (x:xs)
         Nothing ->
             fail $ "Didn't find fields for constructor index " ++
-                   show conInd ++ " in " ++ show sels
+                   (show conInd) ++ " in " ++ (show sels)
     
 getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
 getConNames = map T.pack . conNames

@@ -32,6 +32,11 @@ data ArrTypeBar = ArrTypeBar [Bar] deriving (Eq, Show, Generic)
 data ArrTypeFooBar = ArrTypeFooBar [FooBar] deriving (Eq, Show, Generic)
 data MaybeTest = MaybeTest Int (Maybe Bar) deriving (Eq, Show, Generic)
 data MaybeTestX = MaybeTestX [Maybe Int] Bar [String] deriving (Eq, Show, Generic)
+data BoolTest = BoolTest Bool deriving (Eq, Show, Generic)
+data BoolTestLong = BoolTestLong { blist :: [Bool], b :: Bool, slist :: [String] }
+    deriving (Eq, Show, Generic)
+data StringTest = StringTest String deriving (Eq, Show, Generic)
+data StringTest2 = StringTest2 String [Int] deriving (Eq, Show, Generic)
 
 instance SmartCopy Bla where version = 1
 instance SmartCopy Spam where version = 1
@@ -47,6 +52,10 @@ instance SmartCopy ArrTypeBar where version = 1
 instance SmartCopy ArrTypeFooBar where version = 1
 instance SmartCopy MaybeTest where version = 1
 instance SmartCopy MaybeTestX where version = 1
+instance SmartCopy BoolTest where version = 1
+instance SmartCopy BoolTestLong where version = 1
+instance SmartCopy StringTest where version = 1
+instance SmartCopy StringTest2 where version = 1
 
 some1 = Some (Spam 1) 2
 some2 = Some2 (Spam2 1 2)
@@ -66,3 +75,7 @@ v7 = ArrTypeBar [BarRight v1, BarLeft, BarRight v1]
 v8 = ArrTypeFooBar [v3, v4]
 maybetest1 = MaybeTest 42 (Just (BarRight (Foo 41 BarLeft)))
 maybetest2 = MaybeTest 23 Nothing
+booltest = BoolTest True
+booltest' = BoolTestLong [True, False, True, True] False ["t", "e", "st!"]
+string = StringTest "Test"
+string' = StringTest2 "Test2" [1,2,3,4]

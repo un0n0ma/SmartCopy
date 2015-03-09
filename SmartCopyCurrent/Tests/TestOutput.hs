@@ -121,6 +121,7 @@ main = do args <- getArgs
                 do putStrLn "DATATYPES AS STRING VALUES:"
                    print (S.serializeUnvers Test.maybetest1)
                    print (S.serializeUnvers Test.maybetest2)
+                   print (S.serializeUnvers Test.maybeX)
                    print (S.serializeUnvers Test.v3)
                    print (S.serializeUnvers Test.v2)
                    print (S.serializeSmart Test.v1)

@@ -43,8 +43,7 @@ import "mtl" Control.Monad.Writer
 import Control.Applicative
 import Control.Arrow
 import Control.Monad.Loops
-
-import Data.Either (rights)
+import Data.Either (lefts, rights)
 
 
 -------------------------------------------------------------------------------
@@ -58,7 +57,7 @@ serializeSmart a = TL.unpack $ X.renderText X.def $
                 = execState (evalStateT m []) emptyEl
 
 parseSmart :: SmartCopy a => String -> Fail a
-parseSmart = runParser (smartGet pFormat)
+parseSmart = runParser (fromEitherM $ smartGet pFormat)
     where runParser action value =
               do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
                  evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
@@ -69,7 +68,7 @@ serializeUnvers a = TL.unpack $ X.renderText X.def $
     where runSerialization m = execState (evalStateT m []) emptyEl
 
 parseUnvers :: SmartCopy a => String -> Fail a
-parseUnvers = runParser (readSmart pFormatUnvers)
+parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
     where runParser action value =
               do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
                  evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
@@ -126,24 +125,32 @@ pFormatUnvers
                    case el' of
                      X.Element (X.Name "PrimList" _ _) _ nodes' ->
                          do lift $ lift $ lift $ put nodes'
-                            replicateM (length nodes') (readField pFormatUnvers $
+                            res <-
+                                replicateM (length nodes') (readField pFormatUnvers $
                                 readSmart pFormatUnvers)
-                     _ -> return []
-               n -> replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
+                            if null (lefts res)
+                               then return $ Right $ rights res
+                               else return $ Left []
+                     _ -> return $ Right []
+               n ->
+                   do res <- replicateM (length nodes) (readField pFormatUnvers $ readSmart pFormatUnvers)
+                      if null (lefts res)
+                         then return $ Right $ rights res
+                         else return $ Left []
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
-               [] -> return Nothing
+               [] -> return $ Right Nothing
                X.NodeElement el:xs ->
                    case X.elementNodes el of
-                     [] -> return Nothing
+                     [] -> return $ Right Nothing
                      elNodes ->
                          do put elNodes
                             lift $ lift $ lift $ put xs
-                            liftM Just $ readSmart pFormatUnvers
+                            liftM (fmap Just) $ readSmart pFormatUnvers
                cont@[X.NodeContent val] ->
                    do put cont
-                      liftM Just $ readSmart pFormatUnvers
+                      liftM (fmap Just) $ readSmart pFormatUnvers
                _ -> mismatch "Maybe node" (show $ head nodes)
     }
 
@@ -193,7 +200,7 @@ sFormat
                       let nodeEls = map X.NodeElement resElems
                       put $ xs++nodeEls
                       lift $ put $ X.Element (X.elementName resVers) (X.elementAttributes resVers) resNodes
-               _ -> mismatch "NodeElement" (show nodes)
+               _ -> mismatchFail "NodeElement" (show nodes)
     , writeInt =
           \i ->
               do let resNodes = [X.NodeContent (T.pack $ show i)]
@@ -290,14 +297,25 @@ pFormat
                         X.NodeElement el ->
                             do vers <- readVersion el
                                case vers of
-                                 Just v ->
+                                 Right (Just v) ->
                                      case constructGetterFromVersion pFormat v kind of
                                        Right getter -> return getter
-                                       Left msg -> fail msg
-                                 Nothing ->
+                                       Left msg -> return $ return $ Left msg
+                                 Right Nothing ->
                                      return $ readSmart pFormat
-                        _ -> mismatch "NodeContent or NodeElement" (show nodeElems)
+                                 Left msg -> fail msg
+                        _ ->
+                            return $ mismatch "NodeContent or NodeElement" (show nodeElems)
                 where kind = kindFromProxy (Proxy :: Proxy a)
+    , withLookahead =
+          \_ ma mb ->
+          do consumed <- lift $ lift get
+             res <- ma
+             case res of
+               Left _ ->
+                   lift (lift $ put consumed) >> mb
+               r@(Right _) ->
+                   return r
     , readCons =
           \cons ->
               do elem <- lift $ lift get
@@ -358,7 +376,7 @@ pFormat
                      X.Element (X.Name "PrimList" _ _) _ nodes' ->
                          do lift $ lift $ lift $ put nodes'
                             readListVals nodes'
-                     _ -> return []
+                     _ -> return $ Right []
                n -> readListVals nodes
     , readInt =
           do nodes <- lift $ lift $ lift get
@@ -416,17 +434,17 @@ pFormat
     , readMaybe =
           do nodes <- lift $ lift $ lift get
              case nodes of
-               [] -> return Nothing
+               [] -> return $ Right Nothing
                X.NodeElement el:xs ->
                    case X.elementNodes el of
-                     [] -> return Nothing --  TODO: Not sure if this is correct
+                     [] -> return $ Right Nothing --  TODO: Not sure if this is correct
                      elNodes ->
                          do put nodes
                             lift $ lift $ lift $ put xs
-                            getSmartGet pFormat >>= liftM Just
+                            getSmartGet pFormat >>= liftM (fmap Just)
                cont@[X.NodeContent x] ->
                    do put cont
-                      getSmartGet pFormat >>= liftM Just
+                      getSmartGet pFormat >>= liftM (fmap Just)
                _ -> mismatch "Maybe node" (show $ head nodes)
     , readBS =
           do nodes <- lift $ lift $ lift get
@@ -435,9 +453,9 @@ pFormat
                0 ->
                    case el' of
                      X.Element (X.Name "PrimByteString" _ _) _ nodes ->
-                         liftM BSC.pack $ getStringContent nodes
+                         liftM (fmap BSC.pack) $ getStringContent nodes
                      _ -> mismatch "primitive char at toplevel" (show el')
-               n -> liftM BSC.pack $ getStringContent nodes
+               n -> liftM (fmap BSC.pack) $ getStringContent nodes
     , readText =
           do nodes <- lift $ lift $ lift get
              el' <- lift $ lift get
@@ -445,46 +463,49 @@ pFormat
                0 ->
                    case el' of
                      X.Element (X.Name "PrimText" _ _) _ nodes ->
-                         liftM T.pack $ getStringContent nodes
+                         liftM (fmap T.pack) $ getStringContent nodes
                      _ -> mismatch "primitive char at toplevel" (show el')
-               n -> liftM T.pack $ getStringContent nodes
+               n -> liftM (fmap T.pack) $ getStringContent nodes
     }
     where getIntContent nodes =
               case head nodes of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
-                      [(int, [])] -> return int
+                      [(int, [])] -> return $ Right int
                       _ -> mismatch "Int" (show $ head nodes)
                 _ -> mismatch "NodeContent" (show $ head nodes)
           getDoubleContent nodes =
               case head nodes of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
-                      [(double, [])] -> return double
+                      [(double, [])] -> return $ Right  double
                       _ -> mismatch "Double" (show $ head nodes)
                 _ -> mismatch "NodeContent" (show $ head nodes)
           getBoolContent nodes =
                    case head nodes of
                      X.NodeContent t
-                         | T.unpack t == "True" -> return True
-                         | T.unpack t == "False" -> return False
+                         | T.unpack t == "True" -> return $ Right True
+                         | T.unpack t == "False" -> return $ Right False
                          | otherwise -> mismatch "Bool" (show t)
                      _ -> mismatch "NodeContent" (show $ head nodes)
           getStringContent nodes =
                    case head nodes of
                      X.NodeContent t ->
-                         return $ T.unpack t
+                         return $ Right $ T.unpack t
                      _ -> mismatch "NodeContent" (show $ head nodes)
           getCharContent nodes =
                    case head nodes of
                      X.NodeContent t ->
                          if T.length t == 1
-                            then return $ T.head t
+                            then return $ Right $ T.head t
                             else mismatch "Char" (show t)
                      _ -> mismatch "NodeContent" (show $ head nodes)
           readListVals nodes =
                    do put nodes
-                      getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
+                      res <- getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
+                      if null (lefts res)
+                         then return $ Right $ rights res
+                         else return $ Left []
           pop = do nodes <- get
                    case length nodes of
                      0 -> return $ X.NodeElement emptyEl
@@ -496,9 +517,9 @@ pFormat
                       case vers of
                         Just vText ->
                             case (reads . T.unpack) vText of
-                              [(int,[])] -> return $ Just $ Version int
+                              [(int,[])] -> return $ Right $ Just $ Version int
                               _ -> mismatch "int32 for version" (show vText)
-                        Nothing -> return Nothing
+                        Nothing -> return $ Right Nothing
 
 
 -------------------------------------------------------------------------------

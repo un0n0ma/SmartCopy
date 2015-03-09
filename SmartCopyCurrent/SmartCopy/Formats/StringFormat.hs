@@ -42,14 +42,14 @@ serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = snd $ runWriter m
 
 parseSmart :: SmartCopy a => String -> Fail a
-parseSmart = runParser (smartGet pFormat)
+parseSmart = runParser (fromEitherM $ smartGet pFormat)
     where runParser action = evalState (runFailT action)
 
 serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
     where runSerialization m = snd $ runWriter m
 
 parseUnvers :: SmartCopy a => String -> Fail a
-parseUnvers = runParser (readSmart pFormatUnvers)
+parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
     where runParser action = evalState (runFailT action)
 
 -------------------------------------------------------------------------------
@@ -63,7 +63,7 @@ sFormatUnvers
           \rep ->
               do tell "["
                  case length rep of
-                   0 -> tell ""
+                   0 -> return ()
                    n -> do mapM_ (\a ->
                                   do writeSmart sFormatUnvers a
                                      tell ",") (init rep)
@@ -72,7 +72,7 @@ sFormatUnvers
     , writeMaybe =
           \ma ->
               case ma of
-                Nothing -> tell ""
+                Nothing -> tell "Nothing"
                 Just a -> writeSmart sFormatUnvers a
     }
 
@@ -99,11 +99,10 @@ pFormatUnvers
     , readMaybe =
           do str' <- get
              let str = filter (/=' ') str'
-             case str of
-               ')':xs ->
-                   do put str
-                      return Nothing
-               _ -> liftM Just $ readSmart pFormatUnvers
+             if startswith "Nothing" str
+                then do put $ snd $ delimit str
+                        return $ Right Nothing
+                else liftM (fmap Just) $ readSmart pFormatUnvers
     }
 
 -------------------------------------------------------------------------------
@@ -126,7 +125,7 @@ sFormat
           \rep ->
               do tell "["
                  case rep of
-                   [] -> tell ""
+                   [] -> return ()
                    (x:xs) ->
                        do putter <- getSmartPut sFormat
                           putter x
@@ -145,7 +144,7 @@ sFormat
     , writeMaybe =
           \ma ->
               case ma of
-                Nothing -> tell ""
+                Nothing -> tell "Nothing"
                 Just a -> smartPut sFormat a
     , writeBS = tell . BSC.unpack
     , writeText = tell . T.unpack
@@ -164,11 +163,21 @@ pFormat
         do let kind = kindFromProxy (Proxy :: Proxy a)
            version <- readVersion
            case version of
-             Just v ->
+             Right (Just v) ->
                  case constructGetterFromVersion pFormat v kind of
                          Right getter -> return getter
                          Left msg -> fail msg
-             Nothing -> return $ readSmart pFormat
+             Right Nothing -> return $ readSmart pFormat
+             Left msg -> return $ return $ Left msg
+    , withLookahead =
+         \_ ma mb ->
+         do consumed <- get
+            res <- ma
+            case res of
+              Left _ ->
+                  put consumed >> mb
+              r@(Right _) ->
+                  return r
     , readCons =
          \cons ->
              do str <- get
@@ -211,7 +220,7 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return num
+                      return $ Right num
                [] -> mismatch "Int" prim
     , readChar =
          do str <- get
@@ -220,7 +229,7 @@ pFormat
               0 -> mismatch "Char" prim
               _ ->
                   do put $ tail prim
-                     return $ head prim 
+                     return $ Right $ head prim 
     , readBool =
           do str <- get
              let prim = filter (/=' ') str
@@ -231,39 +240,36 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return num
+                      return $ Right num
                [] -> mismatch "Double" prim
     , readString =
           do str <- get
              let prim = filter (/=' ') str
              put $ snd $ delimit prim
-             return $ fst $ delimit prim
+             return $ Right $ fst $ delimit prim
     , readMaybe =
           do str' <- get
              let str = filter (/=' ') str'
-             case str of
-               ')':xs ->
-                   do put str
-                      return Nothing
-               _ -> liftM Just $ smartGet pFormat
+             if startswith "Nothing" str
+                then do put $ snd $ delimit str
+                        return $ Right Nothing
+                else liftM (fmap Just) $ smartGet pFormat
     , readBS =
          do str <- get
             let prim = filter (/=' ') str
             put $ snd $ delimit prim
-            return $ BSC.pack $ fst $ delimit prim
+            return $ Right $ BSC.pack $ fst $ delimit prim
     , readText =
          do str <- get
             let prim = filter (/=' ') str
             put $ snd $ delimit prim
-            return $ T.pack $ fst $ delimit prim
+            return $ Right $ T.pack $ fst $ delimit prim
     }
-    where delimit                  = L.span (/=')')
-          readBool' :: String -> FailT (State String) Bool
-          readBool' prim
+    where readBool' prim
               | startswith "True" prim =
-                do put $ drop 4 prim; return True
+                do put $ drop 4 prim; return $ Right True
               | startswith "False" prim =
-                do put $ drop 5 prim; return False
+                do put $ drop 5 prim; return $ Right False
               | otherwise =
                 mismatch "Bool" prim
           readVersion =
@@ -276,9 +282,9 @@ pFormat
                           [(int, ')':afterVer)] ->
                               do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
                                  put withoutVer
-                                 return $ Just $ Version int
+                                 return $ Right $ Just $ Version int
                           _ -> mismatch "int32" after
-                   _ -> return Nothing
+                   _ -> return $ Right Nothing
 
 
 -------------------------------------------------------------------------------
@@ -324,13 +330,15 @@ readClose =
 
 mapWithDelim mb list acc
     | null list
-    = return []
+    = return $ Right []
     | otherwise
     = do let (listelem, listrest) = L.span (/= ',') list
          case T.unpack $ T.strip $ T.pack listrest of
            ',':xs -> do put listelem
                         parseElem <- mb
-                        mapWithDelim mb xs (acc ++ [parseElem])
+                        either (return . Left) (\el -> mapWithDelim mb xs (acc ++ [el])) parseElem
            _ -> do put listelem
                    parseElem <- mb
-                   return $ acc ++ [parseElem]
+                   either (return . Left) (\el -> return $ Right $ acc ++ [el]) parseElem
+
+delimit = L.span (/=')')
