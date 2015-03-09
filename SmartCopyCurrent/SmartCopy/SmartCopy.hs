@@ -84,7 +84,9 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = gwriteSmart fmt (from a) False 0 False Empty
+        = gsmartPut fmt (from a) False 0 False Empty ver k
+          where ver = castVersion (version :: Version a)
+                k = castKind (kind :: Kind a)
         --  (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
@@ -109,6 +111,34 @@ class GSmartCopy t where
                -> [Cons] -- ConList
                -> Bool -- Versioned?
                -> m (Either String (t x))
+    gsmartPut :: Monad m
+              => SerializationFormat m
+              -> t x
+              -> Bool --- Sum Type?
+              -> Integer --- Constructor index
+              -> Bool --- Versioned?
+              -> Fields
+              -> Version (t x) --- Version
+              -> Kind (t x)
+              -> m ()
+    gsmartPut fmt x sumtype conInd versioned fields vers kind
+        = do putter <- ggetSmartPut fmt x sumtype conInd versioned fields vers kind
+             putter x
+    ggetSmartPut :: forall x m. (Monad m)
+                 => SerializationFormat m
+                 -> t x
+                 -> Bool --- Sum Type?
+                 -> Integer --- Constructor index
+                 -> Bool --- Versioned?
+                 -> Fields
+                 -> Version (t x) --- Version
+                 -> Kind (t x)
+                 -> m (t x -> m ())
+    ggetSmartPut fmt x sumtype conInd versioned fields vers kind
+        = case kind of
+            Primitive ->
+                return $ \a -> gwriteSmart fmt a False 0 False Empty
+            _ -> return $ \a -> gwriteSmart fmt a False 0 False Empty -- TODO: Version
 
 
 -------------------------------------------------------------------------------
@@ -309,6 +339,11 @@ instance Ord (Version a) where
 castVersion :: Version a -> Version b
 castVersion (Version a) = Version a
 
+castKind :: Kind a -> Kind b
+castKind Primitive = Primitive
+castKind Base = Base
+--- TODO: Add extends, extended
+
 newtype Reverse a = Reverse { unReverse :: a }
 
 data Kind a where
@@ -444,3 +479,4 @@ availableVersions a_proxy =
                 Base -> [unVersion (versionFromKind b_kind)]
                 Extends b_proxy ->
                     unVersion (versionFromKind b_kind) : worker False (kindFromProxy b_proxy)
+

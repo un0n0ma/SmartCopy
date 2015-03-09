@@ -36,31 +36,6 @@ import GHC.Generics
 import Generics.Deriving.ConNames
 
 -------------------------------------------------------------------------------
--- Generic functions for versioned serializing/parsing
--------------------------------------------------------------------------------
-gsmartPut :: (GSmartCopy f, Monad m, SmartCopy x)
-          => SerializationFormat m
-          -> f x
-          -> m ()
-gsmartPut fmt x =
-    do putter <- ggetSmartPut fmt
-       putter x
-
-ggetSmartPut :: forall f x m. (GSmartCopy f, Monad m)
-             => SerializationFormat m
-             -> m (f x -> m ())
-ggetSmartPut fmt =
---    checkConsistency proxy $
-    case gkindFromProxy proxy of
-      Primitive -> return $ \a -> gwriteSmart fmt a False 0 False Empty
-      _         -> --let ver = version :: Version (f x) ---- TODO
-                      return $ \a ->
-                          gwriteSmart fmt (P.asProxyTypeOf a proxy) False 0 True Empty
-                          -- Fix!
-      where proxy = P.Proxy :: P.Proxy (f x)
-
-
--------------------------------------------------------------------------------
 -- Rep instances
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
