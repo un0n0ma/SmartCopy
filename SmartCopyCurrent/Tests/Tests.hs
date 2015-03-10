@@ -570,8 +570,6 @@ testsGenericSerVersioned
                    (\_ -> prettyHex $ SMC.serializeSmart GTest.v3) (undefined :: String) s
              , mkCompSerTest Test.v4 (prettyHex . SMC.serializeSmart)
                    (\_ -> prettyHex $ SMC.serializeSmart GTest.v4) (undefined :: String) s
-             , mkCompSerTest Test.v3 (prettyHex . SMC.serializeSmart)
-                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v3) (undefined :: String) s
              , mkCompSerTest Test.v7 (prettyHex . SMC.serializeSmart)
                    (\_ -> prettyHex $ SMC.serializeSmart GTest.v7) (undefined :: String) s
              , mkCompSerTest Test.v8 (prettyHex . SMC.serializeSmart)

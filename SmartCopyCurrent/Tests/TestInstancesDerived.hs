@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Tests.TestInstancesDerived where
 
@@ -15,6 +17,7 @@ import SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
+import Data.Typeable
 import GHC.Generics
 
 data Bla = Bla deriving (Show, Eq, Generic)
@@ -56,6 +59,30 @@ instance SmartCopy BoolTest where version = 1
 instance SmartCopy BoolTestLong where version = 1
 instance SmartCopy StringTest where version = 1
 instance SmartCopy StringTest2 where version = 1
+
+--------------------- Typeable instances ----------------------
+-- for the sake of comparing types of fields in Generic instances
+-- so that we can save bytes for those with an equal type.
+-- Hopefully there is a way to avoid this.
+
+deriving instance Typeable Bla 
+deriving instance Typeable Spam 
+deriving instance Typeable Spam2 
+deriving instance Typeable Some 
+deriving instance Typeable Some2 
+deriving instance Typeable Bar 
+deriving instance Typeable Foo 
+deriving instance Typeable MyBool 
+deriving instance Typeable FooBar 
+deriving instance Typeable MyDouble 
+deriving instance Typeable ArrTypeBar 
+deriving instance Typeable ArrTypeFooBar 
+deriving instance Typeable MaybeTest 
+deriving instance Typeable MaybeTestX 
+deriving instance Typeable BoolTest 
+deriving instance Typeable BoolTestLong 
+deriving instance Typeable StringTest 
+deriving instance Typeable StringTest2 
 
 some1 = Some (Spam 1) 2
 some2 = Some2 (Spam2 1 2)

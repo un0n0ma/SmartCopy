@@ -33,6 +33,7 @@ import qualified Data.Proxy as P
 import Control.Applicative
 import Control.Monad (liftM, forM_)
 import Data.Data hiding (Proxy)
+import Data.Typeable hiding (Proxy)
 import Data.Maybe
 import GHC.Generics
 import Generics.Deriving.ConNames
@@ -52,7 +53,7 @@ instance (GVersion f, Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D
          
 instance (GVersion f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
     gwriteSmart fmt con@(M1 x) multCons index fields v k
-        = do let versions = gversions (P.Proxy :: P.Proxy (M1 C c f))
+        = do let versions = L.nub $ gversions (P.Proxy :: P.Proxy (M1 C c f))
              fields' <-
                  if multCons
                     then return fields
@@ -65,7 +66,7 @@ instance (GVersion f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M
              let cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields'
                           multCons index' True
              withCons fmt cons $ 
-               do forM_ versions (writeVersion fmt)
+               do forM_ (map snd versions) (writeVersion fmt)
                   gwriteSmart fmt x multCons index' fields' v (castKind k)
     greadSmart fmt [] ver
         = do fields <- getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
@@ -77,7 +78,7 @@ instance (GVersion f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M
 
 instance (Selector s, GSmartCopy f, GVersion f) => GSmartCopy (M1 S s f) where
     gwriteSmart fmt (M1 a) multCons conInd fields v k
-        = do let [version] = gversions (P.Proxy :: P.Proxy (M1 S s f))
+        = do let [(_, version)] = gversions (P.Proxy :: P.Proxy (M1 S s f))
              withField fmt $ withVersion fmt version $ 
                gwriteSmart fmt a multCons conInd fields v (castKind k)
     greadSmart fmt _ ver
@@ -204,18 +205,37 @@ instance (Selectors a, Selectors b) => Selectors (a :*: b) where
 instance Selectors U1 where
     selectors _ conInd = [(conInd, [])]
 
+
+getFields :: Monad m => Integer -> [(Integer, [String])] -> m Fields
+getFields _ [] = return Empty
+getFields conInd sels
+    = let conFields = lookup conInd sels in
+      case conFields of
+        Just [] ->
+            return Empty
+        Just (x:xs) ->
+            case x of
+              "" -> return $ NF (length (x:xs))
+              string -> return $ LF $ map T.pack (x:xs)
+        Nothing ->
+            fail $ "Didn't find fields for constructor index " ++
+                   show conInd ++ " in " ++ show sels
+    
+getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
+getConNames = map T.pack . conNames
+
 -------------------------------------------------------------------------------
 -- Helper functions/types for accessing versions of SmartCopy instances
 -------------------------------------------------------------------------------
 
 class GVersion (rep :: * -> *) where
-    gversions :: P.Proxy rep -> [Int32]
+    gversions :: P.Proxy rep -> [(TypeRep, Int32)]
     
 instance (GVersion f, Datatype d) => GVersion (M1 D d f) where
     gversions _ = gversions (P.Proxy :: P.Proxy f)
 
-instance SmartCopy c => GVersion (K1 a c) where
-    gversions _ = [unVersion (version :: Version c)]
+instance (SmartCopy c, Typeable c, Generic c, ConNames (Rep c)) => GVersion (K1 a c) where
+    gversions _ = [(typeOf (undefined :: c), unVersion (version :: Version c))]
 
 instance (GVersion f, Constructor c) => GVersion (M1 C c f) where
     gversions _ = gversions (P.Proxy :: P.Proxy f)
@@ -238,21 +258,3 @@ instance (GVersion a, GVersion b) => GVersion (a :*: b) where
 instance GVersion U1 where
     gversions _ = []
 
-
-getFields :: Monad m => Integer -> [(Integer, [String])] -> m Fields
-getFields _ [] = return Empty
-getFields conInd sels
-    = let conFields = lookup conInd sels in
-      case conFields of
-        Just [] ->
-            return Empty
-        Just (x:xs) ->
-            case x of
-              "" -> return $ NF (length (x:xs))
-              string -> return $ LF $ map T.pack (x:xs)
-        Nothing ->
-            fail $ "Didn't find fields for constructor index " ++
-                   show conInd ++ " in " ++ show sels
-    
-getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
-getConNames = map T.pack . conNames
