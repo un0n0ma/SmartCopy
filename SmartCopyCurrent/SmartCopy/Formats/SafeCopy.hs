@@ -64,6 +64,8 @@ sFormat
     = SerializationFormat
     { mkPutter =
           \ver -> S.put (unVersion ver) >> return (writeSmart sFormat)
+    , writeVersion = S.put
+    , withVersion = const id
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -154,6 +156,8 @@ pFormat
 sFormatUnvers
     = sFormat
     { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
+    , writeVersion = \_ -> return ()
+    , withVersion = const id
     , writeRepetition = putListOf (writeSmart sFormatUnvers)
     , writeString = writeRepetition sFormatUnvers
     , writeMaybe =

@@ -80,6 +80,8 @@ parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
 sFormatUnvers
     = sFormat
     { mkPutter = \_ -> return $ writeSmart sFormatUnvers
+    , writeVersion = \_ -> return ()
+    , withVersion = const id
     , writeRepetition =
           \ar ->
               do let arrAttr = M.fromList [("type", "array")]
@@ -173,6 +175,18 @@ sFormat
                                                (T.pack $ show $ unVersion ver)
                                                (X.elementAttributes resEl) }
                      lift $ put versEl
+    , writeVersion =
+          \ver -> return ()
+    , withVersion =
+          \ver ma ->
+              do ma
+                 resEl <- lift get
+                 let versEl = resEl
+                            { X.elementAttributes =
+                                  M.insert (makeName (T.pack "version"))
+                                           (T.pack $ show ver)
+                                           (X.elementAttributes resEl) }
+                 lift $ put versEl
     , withCons =
           \cons ma ->
           do let fields =

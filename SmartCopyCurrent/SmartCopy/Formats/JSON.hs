@@ -95,6 +95,16 @@ sFormat
                                 Just _ -> versObj ++ [("object", res)]
                                 Nothing -> versObj ++ fromObject res
                  lift $ put $ Json.object resObj
+    , writeVersion = \_ -> return ()
+    , withVersion =
+          \ver ma ->
+          do ma
+             res <- lift get
+             let versObj = [("version", Json.Number $ fromIntegral ver)]
+                 resObj = case lookup (T.pack "version") (fromObject res) of
+                            Just _ -> versObj ++ [("object", res)]
+                            Nothing -> versObj ++ fromObject res
+             lift $ put $ Json.object resObj
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -521,6 +531,8 @@ sFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (Stat
 sFormatUnvers
     = SerializationFormat
     { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
+    , writeVersion = \_ -> return ()
+    , withVersion = const id
     , withCons =
           \cons ma ->
           if ctagged cons

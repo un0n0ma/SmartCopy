@@ -59,6 +59,8 @@ parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
 sFormatUnvers
     = sFormat
     { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
+    , writeVersion = \_ -> return ()
+    , withVersion = const id
     , writeRepetition =
           \rep ->
               do tell "["
@@ -116,6 +118,8 @@ sFormat
           \ver ->
               do wrapM $ tell $ "version:" ++ show (unVersion ver)
                  return $ writeSmart sFormat
+    , writeVersion = \ver -> wrapM $ tell $ "version:" ++ show ver
+    , withVersion = const id
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }

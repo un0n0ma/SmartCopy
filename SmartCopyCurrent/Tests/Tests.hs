@@ -543,6 +543,157 @@ testsSafeCopy
                     (either (fail . msg) return . SMC.parseSmart) s
              ]
 
+testsGenericSerVersioned
+    = do let s = "GHC-Generic instances: Serialize versioned"
+         mkTestList
+             [ mkCompSerTest Test.v5 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.Bla) (undefined :: String) s
+             , mkCompSerTest Test.some1 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.some2 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some2) (undefined :: String) s
+             , mkCompSerTest Test.some2 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some2) (undefined :: String) s
+             , mkCompSerTest Test.some1 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.v5 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.Bla) (undefined :: String) s
+             , mkCompSerTest Test.v1 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v1) (undefined :: String) s
+             , mkCompSerTest Test.v2 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v2) (undefined :: String) s
+             , mkCompSerTest Test.mybool (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.mybool) (undefined :: String) s
+             , mkCompSerTest Test.mybool' (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.v3 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.v3 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v7 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.booltest' (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.booltest') (undefined :: String) s
+             , mkCompSerTest Test.string (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' (prettyHex . SMC.serializeSmart)
+                   (\_ -> prettyHex $ SMC.serializeSmart GTest.string') (undefined :: String) s
+             , mkCompSerTest Test.some2 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.some2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.some1 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.some1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.bar J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.bar) (undefined :: Json.Value) s
+             , mkCompSerTest Test.mybool' J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.mybool') (undefined :: Json.Value) s
+             , mkCompSerTest Test.mybool J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.mybool) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v1 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v2 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v3 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v3) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v7 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v7) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v4 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v4) (undefined :: Json.Value) s
+             , mkCompSerTest Test.v8 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.v8) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybetest1 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.maybetest1) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybetest2 J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.maybetest2) (undefined :: Json.Value) s
+             , mkCompSerTest Test.maybeX J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.maybeX) (undefined :: Json.Value) s
+             , mkCompSerTest Test.booltest J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.booltest) (undefined :: Json.Value) s
+             , mkCompSerTest Test.booltest' J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.booltest') (undefined :: Json.Value) s
+             , mkCompSerTest Test.string J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.string) (undefined :: Json.Value) s
+             , mkCompSerTest Test.string' J.serializeSmart
+                   (\_ -> J.serializeSmart GTest.string') (undefined :: Json.Value) s
+             , mkCompSerTest Test.v1 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v1) (undefined :: String) s
+             , mkCompSerTest Test.v2 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v2) (undefined :: String) s
+             , mkCompSerTest Test.v3 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.bar X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.bar) (undefined :: String) s
+             , mkCompSerTest Test.mybool X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.mybool) (undefined :: String) s
+             , mkCompSerTest Test.mybool' X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.some1 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.v7 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.booltest' X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.booltest') (undefined :: String) s
+             , mkCompSerTest Test.string X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' X.serializeSmart
+                   (\_ -> X.serializeSmart GTest.string') (undefined :: String) s
+             , mkCompSerTest Test.mybool' S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.mybool') (undefined :: String) s
+             , mkCompSerTest Test.mybool S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.mybool) (undefined :: String) s
+             , mkCompSerTest Test.v1 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v1) (undefined :: String) s
+             , mkCompSerTest Test.v2 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v2) (undefined :: String) s
+             , mkCompSerTest Test.v3 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v3) (undefined :: String) s
+             , mkCompSerTest Test.v4 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v4) (undefined :: String) s
+             , mkCompSerTest Test.some1 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.some1) (undefined :: String) s
+             , mkCompSerTest Test.v7 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v7) (undefined :: String) s
+             , mkCompSerTest Test.v8 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.v8) (undefined :: String) s
+             , mkCompSerTest Test.maybetest1 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.maybetest1) (undefined :: String) s
+             , mkCompSerTest Test.maybetest2 S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.maybetest2) (undefined :: String) s
+             , mkCompSerTest Test.maybeX S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.maybeX) (undefined :: String) s
+             , mkCompSerTest Test.booltest S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.booltest) (undefined :: String) s
+             , mkCompSerTest Test.booltest' S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.booltest') (undefined :: String) s
+             , mkCompSerTest Test.string S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.string) (undefined :: String) s
+             , mkCompSerTest Test.string' S.serializeSmart
+                   (\_ -> S.serializeSmart GTest.string') (undefined :: String) s
+             ]
+
 testsGenericSer
     = do let s = "GHC-Generic instances: Serialize"
          mkTestList
@@ -552,12 +703,6 @@ testsGenericSer
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.some1) (undefined :: String) s
              , mkCompSerTest Test.some2 (prettyHex . SMC.serializeUnvers)
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.some2) (undefined :: String) s
-             , mkCompSerTest Test.some2 (prettyHex . SMC.serializeSmart)
-                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some2) (undefined :: String) s
-             , mkCompSerTest Test.some1 (prettyHex . SMC.serializeSmart)
-                   (\_ -> prettyHex $ SMC.serializeSmart GTest.some1) (undefined :: String) s
-             , mkCompSerTest Test.v5 (prettyHex . SMC.serializeSmart)
-                   (\_ -> prettyHex $ SMC.serializeSmart GTest.Bla) (undefined :: String) s
              , mkCompSerTest Test.v1 (prettyHex . SMC.serializeUnvers)
                    (\_ -> prettyHex $ SMC.serializeUnvers GTest.v1) (undefined :: String) s
              , mkCompSerTest Test.v2 (prettyHex . SMC.serializeUnvers)
@@ -826,6 +971,7 @@ main = do args <- getArgs
             "sc":_ -> testsSafeCopy
             "genericS":_ -> testsGenericSer
             "genericP":_ -> testsGenericParse
+            "genericSVers":_ -> testsGenericSerVersioned
             _ ->
                 do testsJSONUnvers
                    testsJSONVers
@@ -835,5 +981,6 @@ main = do args <- getArgs
                    testsXmlVers
                    testsBinary
                    testsSafeCopy
-                   testsGenericParse
                    testsGenericSer
+                   testsGenericParse
+                   testsGenericSerVersioned

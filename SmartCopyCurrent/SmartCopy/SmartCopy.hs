@@ -41,6 +41,7 @@ module SmartCopy.SmartCopy
        , versionFromProxy
        , kindFromProxy
        , castVersion
+       , castKind
        , versionMap
        )
 where
@@ -84,8 +85,8 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = gsmartPut fmt (from a) False 0 False Empty ver k
-          where ver = castVersion (version :: Version a)
+        = gwriteSmart fmt (from a) False 0 Empty ver k
+          where ver = unVersion (version :: Version a)
                 k = castKind (kind :: Kind a)
         --  (castVersion (version :: Version a) :: Version (Rep a x))
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
@@ -95,16 +96,14 @@ class SmartCopy a where
 
 
 class GSmartCopy t where
-    gversion :: Version (t x)
-    gkind :: Kind (t x)
-    gkind = Base
     gwriteSmart :: Monad m
                 => SerializationFormat m
                 -> t x
-                -> Bool --- Sum type?
+                -> Bool -- Sum type?
                 -> Integer -- Constructor index
-                -> Bool --- Versioned?
                 -> Fields
+                -> Int32 -- Version
+                -> Kind (t x) -- Kind
                 -> m ()
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
@@ -116,30 +115,29 @@ class GSmartCopy t where
               -> t x
               -> Bool --- Sum Type?
               -> Integer --- Constructor index
-              -> Bool --- Versioned?
               -> Fields
-              -> Version (t x) --- Version
+              -> Int32 --- Version (unVersioned)
               -> Kind (t x)
               -> m ()
-    gsmartPut fmt x sumtype conInd versioned fields vers kind
-        = do putter <- ggetSmartPut fmt x sumtype conInd versioned fields vers kind
+    gsmartPut fmt x sumtype conInd fields vers kind
+        = do putter <- ggetSmartPut fmt x sumtype conInd fields vers kind
              putter x
     ggetSmartPut :: forall x m. (Monad m)
                  => SerializationFormat m
                  -> t x
                  -> Bool --- Sum Type?
                  -> Integer --- Constructor index
-                 -> Bool --- Versioned?
                  -> Fields
-                 -> Version (t x) --- Version
+                 -> Int32 --- Version
                  -> Kind (t x)
                  -> m (t x -> m ())
-    ggetSmartPut fmt x sumtype conInd versioned fields vers kind
+    ggetSmartPut fmt x sumtype conInd fields vers kind
         = case kind of
             Primitive ->
-                return $ \a -> gwriteSmart fmt a False 0 False Empty
-            _ -> return $ \a -> gwriteSmart fmt a False 0 False Empty -- TODO: Version
-
+                return $ \a -> gwriteSmart fmt a False 0 Empty 0 kind
+            _ -> do writeVersion fmt vers
+                    return $ \a -> withVersion fmt vers $ gwriteSmart fmt a False 0 Empty vers kind -- TODO: Version
+                   -- return $ \a -> gwriteSmart fmt a False 0 False Empty
 
 -------------------------------------------------------------------------------
 -- Format records
@@ -148,6 +146,8 @@ class GSmartCopy t where
 data SerializationFormat m
     = SerializationFormat
     { mkPutter :: SmartCopy a => Version a -> m (a -> m ())
+    , withVersion :: Int32 -> m () -> m ()
+    , writeVersion :: Int32 -> m ()
     , withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
     , writeRepetition :: SmartCopy a => [a] -> m ()
