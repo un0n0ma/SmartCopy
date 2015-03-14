@@ -1,4 +1,3 @@
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PackageImports #-}
 
 module SmartCopy.Formats.SafeCopy
@@ -63,9 +62,8 @@ sFormat :: SerializationFormat PutM
 sFormat
     = SerializationFormat
     { mkPutter =
-          \ver -> S.put (unVersion ver) >> return (writeSmart sFormat)
-    , writeVersion = S.put
-    , withVersion = const id
+          \b ver -> if b then S.put ver >> return (writeSmart sFormat)
+                         else return $ writeSmart sFormat
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -101,11 +99,14 @@ pFormat :: ParseFormat Get
 pFormat
     = ParseFormat
     { mkGetter =
-          do v <- liftM Version S.get
-             let kind = kindFromProxy (Proxy :: Proxy a)
-             case constructGetterFromVersion pFormat v kind of
-               Right getter -> return getter
-               Left msg -> fail msg
+          \b prevVers ->
+              if b 
+                 then do v <- liftM Version S.get
+                         case constructGetterFromVersion pFormat v kind of
+                           Right getter -> return getter
+                           Left msg -> fail msg
+                 else either fail return $
+                      constructGetterFromVersion pFormat (Version prevVers) kind
     , withLookahead =
           \conInd ma mb ->
           do c <- S.getWord8
@@ -155,9 +156,7 @@ pFormat
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
-    , writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
     , writeRepetition = putListOf (writeSmart sFormatUnvers)
     , writeString = writeRepetition sFormatUnvers
     , writeMaybe =
@@ -171,7 +170,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { mkGetter = return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , readRepetition =
           do n <- S.get
              res  <- getSmartGet pFormatUnvers >>= replicateM n

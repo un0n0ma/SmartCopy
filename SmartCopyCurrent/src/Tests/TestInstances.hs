@@ -55,6 +55,7 @@ data BoolTestLong = BoolTestLong { blist :: [Bool], b :: Bool, slist :: [String]
     deriving (Eq, Show, Generic)
 data MaybeTest = MaybeTest Int (Maybe Bar) deriving (Eq, Show, Generic)
 data MaybeTestX = MaybeTestX [Maybe Int] Bar [String] deriving (Eq, Show, Generic)
+data SumTest = SumTest1 | SumTest2 Int | SumTest3 Int Int deriving (Eq, Show, Generic)
 
 instance Json.ToJSON Some
 instance Json.ToJSON Some2
@@ -74,6 +75,8 @@ instance Json.ToJSON StringTest
 instance Json.ToJSON StringTest2
 instance Json.ToJSON BoolTest
 instance Json.ToJSON BoolTestLong
+instance Json.ToJSON SumTest
+instance Json.ToJSON MaybeTestX
 instance Json.FromJSON Some
 instance Json.FromJSON Some2
 instance Json.FromJSON Spam
@@ -92,6 +95,8 @@ instance Json.FromJSON StringTest2
 instance Json.FromJSON ArrTypeFooBar
 instance Json.FromJSON BoolTest
 instance Json.FromJSON BoolTestLong
+instance Json.FromJSON SumTest
+instance Json.FromJSON MaybeTestX
 
 instance B.Serialize Bla
 instance B.Serialize Foo
@@ -112,6 +117,8 @@ instance B.Serialize BoolTest
 instance B.Serialize BoolTestLong
 instance B.Serialize Easy
 instance B.Serialize MaybeTest
+instance B.Serialize MaybeTestX
+instance B.Serialize SumTest
 
 SC.deriveSafeCopy 1 'SC.base ''Bla
 SC.deriveSafeCopy 1 'SC.base ''MyBool
@@ -131,7 +138,9 @@ SC.deriveSafeCopy 1 'SC.base ''StringTest2
 SC.deriveSafeCopy 1 'SC.base ''BoolTest
 SC.deriveSafeCopy 1 'SC.base ''BoolTestLong
 SC.deriveSafeCopy 1 'SC.base ''MaybeTest
+SC.deriveSafeCopy 1 'SC.base ''MaybeTestX
 SC.deriveSafeCopy 1 'SC.base ''Easy
+SC.deriveSafeCopy 1 'SC.base ''SumTest
 
 ----------------------
 -- SmartCopy instances
@@ -458,9 +467,41 @@ instance SmartCopy Spam2 where
                    i2 <- readField fmt getter >>= either fail return
                    return $ Right $ Spam2 i1 i2
 
+instance SmartCopy SumTest where
+    version = 1
+    writeSmart fmt x@SumTest1 =
+        withCons fmt (C "SumTest1" (NF 0) True 0 False) $ return ()
+    writeSmart fmt x@(SumTest2 int) =
+        withCons fmt (C "SumTest2" (NF 1) True 1 False) writeFields
+        where writeFields = do putter <- getSmartPut fmt
+                               withField fmt $ putter int
+    writeSmart fmt x@(SumTest3 int1 int2) =
+        withCons fmt (C "SumTest3" (NF 2) True 2 False) writeFields
+        where writeFields = do putter <- getSmartPut fmt
+                               withField fmt $ putter int1
+                               withField fmt $ putter int2
+    readSmart fmt =
+        readCons fmt [(C "SumTest1" (NF 0) True 0 False, readSum1)
+                     ,(C "SumTest2" (NF 1) True 1 False, readSum2)
+                     ,(C "SumTest3" (NF 2) True 2 False, readSum3)
+                     ]
+        where readSum1 = return $ Right SumTest1
+              readSum2 =
+                do getter <- getSmartGet fmt
+                   i1 <- readField fmt getter >>= either fail return
+                   return $ Right $ SumTest2 i1
+              readSum3 =
+                do getter <- getSmartGet fmt
+                   i1 <- readField fmt getter >>= either fail return
+                   i2 <- readField fmt getter >>= either fail return
+                   return $ Right $ SumTest3 i1 i2
+        
 -------------------------------------------------------------------------------
 -- Examples
 -------------------------------------------------------------------------------
+
+sumtest1 = SumTest2 10
+sumtest2 = SumTest3 10 5
 
 bar = BarLeft
 
@@ -502,6 +543,9 @@ some1 = Some (Spam 1) 2
 
 some2 :: Some2
 some2 = Some2 (Spam2 1 2)
+
+spam :: Spam2
+spam = Spam2 1 2
 
 string :: StringTest
 string = StringTest "Test"

@@ -25,6 +25,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.List as L (span)
 import qualified Data.Text as T
+
 import Data.List.Utils (startswith)
 
 -------------------------------------------------------------------------------
@@ -58,9 +59,7 @@ parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
-    , writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
     , writeRepetition =
           \rep ->
               do tell "["
@@ -115,11 +114,11 @@ sFormat :: SerializationFormat (Writer String)
 sFormat
     = SerializationFormat
     { mkPutter =
-          \ver ->
-              do wrapM $ tell $ "version:" ++ show (unVersion ver)
-                 return $ writeSmart sFormat
-    , writeVersion = \ver -> wrapM $ tell $ "version:" ++ show ver
-    , withVersion = const id
+          \b ver ->
+              if b
+                 then do wrapM $ tell $ "version:" ++ show ver
+                         return $ writeSmart sFormat
+                 else return $ writeSmart sFormat
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
@@ -164,15 +163,20 @@ pFormat :: ParseFormat (FailT (State String))
 pFormat
     = ParseFormat
     { mkGetter =
-        do let kind = kindFromProxy (Proxy :: Proxy a)
-           version <- readVersion
-           case version of
-             Right (Just v) ->
-                 case constructGetterFromVersion pFormat v kind of
-                         Right getter -> return getter
-                         Left msg -> fail msg
-             Right Nothing -> return $ readSmart pFormat
-             Left msg -> return $ return $ Left msg
+          \b prevVer ->
+              if b
+                 then
+                     do let kind = kindFromProxy (Proxy :: Proxy a)
+                        version <- readVersion
+                        case version of
+                          Right (Just v) ->
+                              case constructGetterFromVersion pFormat v kind of
+                                      Right getter -> return getter
+                                      Left msg -> fail msg
+                          Right Nothing -> return $ readSmart pFormat
+                          Left msg -> return $ return $ Left msg
+                 else either fail return $
+                      constructGetterFromVersion pFormat (Version prevVer) kind
     , withLookahead =
          \_ ma mb ->
          do consumed <- get

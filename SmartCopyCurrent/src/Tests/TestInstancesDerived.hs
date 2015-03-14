@@ -40,9 +40,10 @@ data BoolTestLong = BoolTestLong { blist :: [Bool], b :: Bool, slist :: [String]
     deriving (Eq, Show, Generic)
 data StringTest = StringTest String deriving (Eq, Show, Generic)
 data StringTest2 = StringTest2 String [Int] deriving (Eq, Show, Generic)
+data SumTest = SumTest1 | SumTest2 Int | SumTest3 Int Int deriving (Eq, Show, Generic)
 
 instance SmartCopy Bla where version = 1
-instance SmartCopy Spam where version = 1
+instance SmartCopy Spam where version = 1  
 instance SmartCopy Spam2 where version = 1
 instance SmartCopy Some where version = 1
 instance SmartCopy Some2 where version = 1
@@ -52,13 +53,14 @@ instance SmartCopy MyBool where version = 1
 instance SmartCopy FooBar where version = 1
 instance SmartCopy MyDouble where version = 1
 instance SmartCopy ArrTypeBar where version = 1
-instance SmartCopy ArrTypeFooBar where version = 1
+instance SmartCopy ArrTypeFooBar where version = 1  
 instance SmartCopy MaybeTest where version = 1
 instance SmartCopy MaybeTestX where version = 1
 instance SmartCopy BoolTest where version = 1
 instance SmartCopy BoolTestLong where version = 1
 instance SmartCopy StringTest where version = 1
 instance SmartCopy StringTest2 where version = 1
+instance SmartCopy SumTest where version = 1
 
 --------------------- Typeable instances ----------------------
 -- for the sake of comparing types of fields in Generic instances
@@ -83,9 +85,15 @@ deriving instance Typeable BoolTest
 deriving instance Typeable BoolTestLong 
 deriving instance Typeable StringTest 
 deriving instance Typeable StringTest2 
+deriving instance Typeable SumTest
+
+sumtest1 = SumTest2 10
+sumtest2 = SumTest3 10 5
 
 some1 = Some (Spam 1) 2
 some2 = Some2 (Spam2 1 2)
+
+spam = Spam2 1 2
 
 bar = BarLeft
 

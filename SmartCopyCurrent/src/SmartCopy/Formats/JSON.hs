@@ -86,25 +86,15 @@ serializeWith a version = runSerialization (smartPutWithVersion sFormat a versio
 sFormat
     = sFormatUnvers
     { mkPutter =
-          \ver ->
-          return $ \a ->
-              do writeSmart sFormat a
-                 res <- lift get
-                 let versObj = [("version", Json.Number $ fromIntegral $ unVersion ver)]
-                     resObj = case lookup (T.pack "version") (fromObject res) of
-                                Just _ -> versObj ++ [("object", res)]
-                                Nothing -> versObj ++ fromObject res
-                 lift $ put $ Json.object resObj
-    , writeVersion = \_ -> return ()
-    , withVersion =
-          \ver ma ->
-          do ma
-             res <- lift get
-             let versObj = [("version", Json.Number $ fromIntegral ver)]
-                 resObj = case lookup (T.pack "version") (fromObject res) of
-                            Just _ -> versObj ++ [("object", res)]
-                            Nothing -> versObj ++ fromObject res
-             lift $ put $ Json.object resObj
+          \_ ver ->
+              return $ \a ->
+                  do writeSmart sFormat a
+                     res <- lift get
+                     let versObj = [("version", Json.Number $ fromIntegral ver)]
+                         resObj = case lookup (T.pack "version") (fromObject res) of
+                                    Just _ -> versObj ++ [("object", res)]
+                                    Nothing -> versObj ++ fromObject res
+                     lift $ put $ Json.object resObj
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -200,15 +190,16 @@ pFormat :: ParseFormat (FailT (ReaderT (Either String Json.Value) (StateT Json.V
 pFormat
     = ParseFormat
     { mkGetter =
-          return $
-          do (version, rest) <- readVersion
-             case version of
-               Just v ->
-                   case constructGetterFromVersion pFormat v kind of
-                     Right getter ->
-                         local (const $ Right rest) getter 
-                     Left msg -> return $ Left msg
-               Nothing -> readSmart pFormat
+          \_ prevVer ->
+               return $
+               do (version, rest) <- readVersion
+                  case version of
+                    Just v ->
+                        case constructGetterFromVersion pFormat v kind of
+                          Right getter ->
+                              local (const $ Right rest) getter 
+                          Left msg -> return $ Left msg
+                    Nothing -> readSmart pFormat
     , withLookahead =
           \_ ma mb ->
           do val <- ask
@@ -301,7 +292,6 @@ pFormat
                                 conLookupErr (show tag) (show conNames)
                       _ ->
                           mismatch "tagged type" (show val)
-  --  , readSum =
     , readField =
         \ma ->
             do fields <- lift $ lift $ lift get
@@ -477,20 +467,20 @@ pFormat
                        Just (Json.Number ver) ->
                            return (Just $ Version $ floor ver, withoutVersion o)
                        _ ->
-                           do case M.toList obj of
-                                [] -> return (Nothing, o)
-                                (index, Json.Object obj'):xs ->
-                                    case M.toList obj' of
-                                      [(label, cont)] ->
-                                          do lift $ put cont
-                                             v <- readVersion
-                                             lift $ put $ Json.object xs
-                                             return v
-                                (k, v):xs ->
-                                    do lift $ put v
-                                       v <- readVersion
-                                       lift $ put $ Json.object xs
-                                       return v
+                           case M.toList obj of
+                             [] -> return (Nothing, o)
+                             (index, Json.Object obj'):xs ->
+                                 case M.toList obj' of
+                                   [(label, cont)] ->
+                                       do lift $ put cont
+                                          v <- readVersion
+                                          lift $ put $ Json.object xs
+                                          return v
+                             (k, v):xs ->
+                                 do lift $ put v
+                                    v <- readVersion
+                                    lift $ put $ Json.object xs
+                                    return v
                    a@(Json.Array ar) ->
                       case V.length ar of
                         0 -> return (Nothing, Json.Null)
@@ -530,9 +520,7 @@ pFormat
 sFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 sFormatUnvers
     = SerializationFormat
-    { mkPutter = \_ -> return $ writeSmart sFormatUnvers 
-    , writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
     , withCons =
           \cons ma ->
           if ctagged cons
@@ -650,7 +638,7 @@ sFormatUnvers
 pFormatUnvers :: ParseFormat (FailT (ReaderT (Either String Json.Value) (State [String])))
 pFormatUnvers
     = ParseFormat
-    { mkGetter = return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , withLookahead =
           \_ ma mb ->
           do val <- ask

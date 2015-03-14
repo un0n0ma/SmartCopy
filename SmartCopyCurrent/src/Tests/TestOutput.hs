@@ -116,7 +116,7 @@ main = do args <- getArgs
                    BSL.putStrLn (J.encodeSmart Test.v8)
                    putStrLn "BACK-MIGRATION:"
                    print (J.serializeWith TestV2.someOld 1)
-                   print (J.serializeWith TestV2.some 2)
+                 --  print (J.serializeWith TestV2.some 2)
             "string":_ ->
                 do putStrLn "DATATYPES AS STRING VALUES:"
                    print (S.serializeUnvers Test.maybetest1)

@@ -79,9 +79,7 @@ parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ -> return $ writeSmart sFormatUnvers
-    , writeVersion = \_ -> return ()
-    , withVersion = const id
+    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
     , writeRepetition =
           \ar ->
               do let arrAttr = M.fromList [("type", "array")]
@@ -118,7 +116,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { mkGetter = return $ readSmart pFormatUnvers
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
     , readRepetition =
           do nodes <- lift $ lift $ lift get
              el' <- lift $ lift get
@@ -165,28 +163,16 @@ sFormat :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormat
     = SerializationFormat
     { mkPutter =
-          \ver ->
+          \_ ver ->
               return $ \a ->
                   do writeSmart sFormat a
                      resEl <- lift get
                      let versEl = resEl
                                 { X.elementAttributes =
                                       M.insert (makeName (T.pack "version"))
-                                               (T.pack $ show $ unVersion ver)
+                                               (T.pack $ show ver)
                                                (X.elementAttributes resEl) }
                      lift $ put versEl
-    , writeVersion =
-          \ver -> return ()
-    , withVersion =
-          \ver ma ->
-              do ma
-                 resEl <- lift get
-                 let versEl = resEl
-                            { X.elementAttributes =
-                                  M.insert (makeName (T.pack "version"))
-                                           (T.pack $ show ver)
-                                           (X.elementAttributes resEl) }
-                 lift $ put versEl
     , withCons =
           \cons ma ->
           do let fields =
@@ -300,27 +286,27 @@ pFormat :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]
 pFormat
     = ParseFormat
     { mkGetter =
-          do nodeElems <- get
-             case length nodeElems of
-               0 -> return $ readSmart pFormat
-               n ->
-                   do el <- pop
-                      case el of
-                        X.NodeContent _ ->
-                            return $ readSmart pFormat
-                        X.NodeElement el ->
-                            do vers <- readVersion el
-                               case vers of
-                                 Right (Just v) ->
-                                     case constructGetterFromVersion pFormat v kind of
-                                       Right getter -> return getter
-                                       Left msg -> return $ return $ Left msg
-                                 Right Nothing ->
-                                     return $ readSmart pFormat
-                                 Left msg -> fail msg
-                        _ ->
-                            return $ mismatch "NodeContent or NodeElement" (show nodeElems)
-                where kind = kindFromProxy (Proxy :: Proxy a)
+          \_ prevVer ->
+              do nodeElems <- get
+                 case length nodeElems of
+                   0 -> return $ readSmart pFormat
+                   n ->
+                       do el <- pop
+                          case el of
+                            X.NodeContent _ ->
+                                return $ readSmart pFormat
+                            X.NodeElement el ->
+                                do vers <- readVersion el
+                                   case vers of
+                                     Right (Just v) ->
+                                         case constructGetterFromVersion pFormat v kind of
+                                           Right getter -> return getter
+                                           Left msg -> return $ return $ Left msg
+                                     Right Nothing ->
+                                         return $ readSmart pFormat
+                                     Left msg -> fail msg
+                            _ ->
+                                return $ mismatch "NodeContent or NodeElement" (show nodeElems)
     , withLookahead =
           \_ ma mb ->
           do consumed <- lift $ lift get

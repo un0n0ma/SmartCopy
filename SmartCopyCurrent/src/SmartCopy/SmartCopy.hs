@@ -67,13 +67,14 @@ import Text.Parsec hiding (Empty)
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import Control.Applicative
-import Control.Monad.IO.Class
 import "mtl" Control.Monad.Identity
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.Trans (MonadTrans(..))
 import "mtl" Control.Monad.Writer
 
+import Control.Applicative
+import Control.Monad.IO.Class
+import Data.Typeable (TypeRep)
 import GHC.Generics
 
 class SmartCopy a where
@@ -85,14 +86,16 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = gwriteSmart fmt (from a) False 0 Empty ver k
-          where ver = unVersion (version :: Version a)
-                k = castKind (kind :: Kind a)
+        = do wrapped <- gwriteSmart fmt (from a) False 0 Empty []
+             putter <- wrapped
+             putter (from a)
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
                       => ParseFormat m -> m (Either String a)
-    readSmart fmt = fmap (fmap to) (greadSmart fmt [] False)
-
+    readSmart fmt
+        = do wrapped <- greadSmart fmt [] []
+             getter <- wrapped
+             fmap (fmap to) getter
 
 class GSmartCopy t where
     gwriteSmart :: Monad m
@@ -101,23 +104,21 @@ class GSmartCopy t where
                 -> Bool -- Sum type?
                 -> Integer -- Constructor index
                 -> Fields
-                -> Int32 -- Version
-                -> Kind (t x) -- Kind
-                -> m ()
+                -> [(Maybe TypeRep, Int32)]
+                -> m (m (t x -> m ()))
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
                -> [Cons] -- ConList
-               -> Bool -- Versioned?
-               -> m (Either String (t x))
+               -> [(Maybe TypeRep, Int32)]
+               -> m (m (m (Either String (t x))))
 -------------------------------------------------------------------------------
 -- Format records
 -------------------------------------------------------------------------------
 
 data SerializationFormat m
     = SerializationFormat
-    { mkPutter :: SmartCopy a => Version a -> m (a -> m ())
-    , withVersion :: Int32 -> m () -> m ()
-    , writeVersion :: Int32 -> m ()
+    { mkPutter :: SmartCopy a => Bool -> Int32 -> m (a -> m ())
+    --- Bool: save byte by not writing out version
     , withCons :: Cons -> m () -> m ()
     , withField :: m () -> m ()
     , writeRepetition :: SmartCopy a => [a] -> m ()
@@ -134,9 +135,10 @@ data SerializationFormat m
 
 data ParseFormat m
     = ParseFormat
-    { mkGetter :: SmartCopy a => m (m (Either String a))
+    { mkGetter :: SmartCopy a => Bool -> Int32 -> m (m (Either String a))
+    --- Bool: save byte by not writing out version. Int32: Version of duplicate type.
     , withLookahead :: forall a.
-                       Integer -> m (Either String a) -> m (Either String a) -> m (Either String a)
+            Integer -> m (Either String a) -> m (Either String a) -> m (Either String a)
     , readCons :: forall a. [(Cons, m (Either String a))] -> m (Either String a)
     , readField :: forall a. m (Either String a) -> m (Either String a)
     , readRepetition :: SmartCopy a => m (Either String [a])
@@ -227,7 +229,7 @@ getSmartPut fmt =
     case kindFromProxy proxy of
       Primitive -> return $ \a -> writeSmart fmt $ asProxyType a proxy
       _         -> do let ver = version :: Version a
-                      mkPutter fmt ver
+                      mkPutter fmt True (unVersion ver)
     where proxy = Proxy :: Proxy a
 
 getSmartGet :: forall a m i. (SmartCopy a, Monad m, Applicative m, Alternative m)
@@ -237,7 +239,7 @@ getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ readSmart fmt
-      kind -> mkGetter fmt
+      kind -> mkGetter fmt True 0
       where proxy = Proxy :: Proxy a
 
 -- Serialize in a particular version of the datatype
@@ -260,7 +262,7 @@ getSmartPutWithVersion fmt vMap version =
     checkConsistency proxy $
         do let VersionMap verMap = vMap
            case M.lookup (Version version) verMap of
-             Just typeId -> mkPutter fmt (Version version :: Version typeId)
+             Just typeId -> mkPutter fmt True $ unVersion (Version version :: Version typeId)
              Nothing -> fail $ vNotFoundPutter (show version)
     where proxy = Proxy :: Proxy a
 
