@@ -11,6 +11,8 @@ import qualified SmartCopy.Formats.JSON as J
                , serializeWith
                , encodeUnvers
                , encodeSmart
+               , decodeSmart
+               , decodeUnvers
                )
 import qualified SmartCopy.Formats.StringFormat as S
                ( serializeSmart
@@ -100,7 +102,7 @@ main = do args <- getArgs
                    print (J.parseUnvers Test.js2 :: Fail Test.MyDouble)
                    print (J.parseUnvers Test.js3 :: Fail Test.FooBar)
                    print (J.parseSmart (J.serializeSmart Test.string') :: Fail Test.StringTest2)
-                   putStrLn "ENCODING:"
+                   putStrLn "ENCODING AND DECODING:"
                    BSL.putStrLn (J.encodeSmart Test.some1)
                    BSL.putStrLn (J.encodeSmart Test.v3)
                    BSL.putStrLn (J.encodeSmart Test.v4)
@@ -114,6 +116,20 @@ main = do args <- getArgs
                    BSL.putStrLn (J.encodeUnvers Test.v7)
                    BSL.putStrLn (J.encodeUnvers Test.v8)
                    BSL.putStrLn (J.encodeSmart Test.v8)
+                   print (J.decodeSmart $ J.encodeSmart Test.some1 :: Fail Test.Some)
+                   print (J.decodeSmart $ J.encodeSmart Test.v3 :: Fail Test.FooBar)
+                   print (J.decodeSmart $ J.encodeSmart Test.v4 :: Fail Test.FooBar)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v4 :: Fail Test.FooBar)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v3 :: Fail Test.FooBar)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v5 :: Fail Test.Bla)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v6a :: Fail Test.ArrType)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v6b :: Fail Test.ArrType)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v1 :: Fail Test.Foo)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v2 :: Fail Test.Foo)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v7 :: Fail Test.ArrTypeBar)
+                   print (J.decodeUnvers $ J.encodeUnvers Test.v8 :: Fail Test.ArrTypeFooBar)
+                   print (J.decodeSmart $ J.encodeSmart Test.v8 :: Fail Test.ArrTypeFooBar)
+
                    putStrLn "BACK-MIGRATION:"
                    print (J.serializeWith TestV2.someOld 1)
                  --  print (J.serializeWith TestV2.some 2)

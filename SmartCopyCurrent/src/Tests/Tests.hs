@@ -131,7 +131,7 @@ testsJSONVers
              , mkSerParseTest Test.maybetest2 J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.maybeX J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.sumtest1 J.serializeSmart J.parseSmart s
-             , mkSerParseTest Test.sumtest1 J.serializeSmart J.parseSmart s
+             , mkSerParseTest Test.sumtest2 J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.string J.serializeSmart J.parseSmart s
              , mkSerParseTest Test.string' J.serializeSmart J.parseSmart s
              , mkSerParseTest ([1,2,3,4] :: [Int]) J.serializeSmart J.parseSmart s
@@ -930,10 +930,10 @@ testsGenericParse
                GTest.maybetest2 (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.maybeX)
                GTest.maybeX (either (fail . msg) return . SMC.parseUnvers)
-            -- , mkGenericParseTest (SMC.serializeUnvers Test.sumtest1)
-            --   GTest.sumtest1 (either (fail . msg) return . SMC.parseUnvers)
-            -- , mkGenericParseTest (SMC.serializeUnvers Test.sumtest2)
-            --   GTest.sumtest2 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.sumtest1)
+               GTest.sumtest1 (either (fail . msg) return . SMC.parseUnvers)
+             , mkGenericParseTest (SMC.serializeUnvers Test.sumtest2)
+               GTest.sumtest2 (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.mybool)
                GTest.mybool (either (fail . msg) return . SMC.parseUnvers)
              , mkGenericParseTest (SMC.serializeUnvers Test.booltest)
@@ -974,10 +974,10 @@ testsGenericParse
                GTest.string J.parseUnvers
              , mkGenericParseTest (J.serializeUnvers Test.string')
                GTest.string' J.parseUnvers
-           --  , mkGenericParseTest (J.serializeUnvers Test.sumtest1)
-           --    GTest.sumtest1 J.parseUnvers
-           --  , mkGenericParseTest (J.serializeUnvers Test.sumtest2)
-           --    GTest.sumtest2 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.sumtest1)
+               GTest.sumtest1 J.parseUnvers
+             , mkGenericParseTest (J.serializeUnvers Test.sumtest2)
+               GTest.sumtest2 J.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.maybetest1)
                GTest.maybetest1 X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.maybeX)
@@ -992,10 +992,10 @@ testsGenericParse
                GTest.string X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.string')
                GTest.string' X.parseUnvers
-            -- , mkGenericParseTest (X.serializeUnvers Test.sumtest2)
-           --    GTest.sumtest2 X.parseUnvers
-           --  , mkGenericParseTest (X.serializeUnvers Test.sumtest1)
-           --    GTest.sumtest1 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.sumtest2)
+               GTest.sumtest2 X.parseUnvers
+             , mkGenericParseTest (X.serializeUnvers Test.sumtest1)
+               GTest.sumtest1 X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.v1)
                GTest.v1 X.parseUnvers
              , mkGenericParseTest (X.serializeUnvers Test.v2)
@@ -1076,6 +1076,10 @@ testsGenericParseVersioned
                GTest.string (either (fail . msg) return . SMC.parseSmart)
              , mkGenericParseTest (SMC.serializeSmart Test.string')
                GTest.string' (either (fail . msg) return . SMC.parseSmart)
+             , mkGenericParseTest (SMC.serializeSmart Test.sumtest1)
+               GTest.sumtest1 (either (fail . msg) return . SMC.parseSmart)
+             , mkGenericParseTest (SMC.serializeSmart Test.sumtest2)
+               GTest.sumtest2 (either (fail . msg) return . SMC.parseSmart)
              , mkGenericParseTest (J.serializeSmart Test.v1)
                GTest.v1 J.parseSmart
              , mkGenericParseTest (J.serializeSmart Test.v2)
@@ -1112,6 +1116,10 @@ testsGenericParseVersioned
                GTest.some2 J.parseSmart
              , mkGenericParseTest (J.serializeSmart Test.spam)
                GTest.spam J.parseSmart
+             , mkGenericParseTest (J.serializeSmart Test.sumtest1)
+               GTest.sumtest1 J.parseSmart
+             , mkGenericParseTest (J.serializeSmart Test.sumtest2)
+               GTest.sumtest2 J.parseSmart
              , mkGenericParseTest (X.serializeSmart Test.maybetest1)
                GTest.maybetest1 X.parseSmart
              , mkGenericParseTest (X.serializeSmart Test.maybeX)
@@ -1148,6 +1156,12 @@ testsGenericParseVersioned
                GTest.some2 X.parseSmart
              , mkGenericParseTest (X.serializeSmart Test.spam)
                GTest.spam X.parseSmart
+             , mkGenericParseTest (X.serializeSmart Test.spam)
+               GTest.spam X.parseSmart
+             , mkGenericParseTest (X.serializeSmart Test.sumtest1)
+               GTest.sumtest1 X.parseSmart
+             , mkGenericParseTest (X.serializeSmart Test.sumtest2)
+               GTest.sumtest2 X.parseSmart
              , mkGenericParseTest (S.serializeSmart Test.v1)
                GTest.v1 S.parseSmart
              , mkGenericParseTest (S.serializeSmart Test.v2)
@@ -1180,6 +1194,8 @@ testsGenericParseVersioned
                GTest.some2 S.parseSmart
              , mkGenericParseTest (S.serializeSmart Test.spam)
                GTest.spam S.parseSmart
+             , mkGenericParseTest (S.serializeSmart Test.sumtest1)
+               GTest.sumtest1 S.parseSmart
              ]
 
 msg a = "Failure: " ++ a

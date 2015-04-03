@@ -2,6 +2,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,67 +43,52 @@ import Generics.Deriving.ConNames
 -- Rep instances
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
-    gwriteSmart fmt _ _ _ _ _ = return $ return (\U1 -> return ())
+    gwriteSmart fmt _ _ _ = return $ return (\U1 -> return ())
     greadSmart fmt _ _ = return $ return $ return $ Right U1
 
 instance (GVersion f, Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
-    gwriteSmart fmt d@(M1 x) _ _ _ _
-        = liftM (liftM (\g (M1 x) -> g x)) $ gwriteSmart fmt x False 0 Empty []
+    gwriteSmart fmt d@(M1 x) _ _
+        = liftM (liftM (\g (M1 x) -> g x)) $ gwriteSmart fmt x [] []
     greadSmart fmt _ _
         = liftM (liftM (liftM (fmap M1))) $ greadSmart fmt [] []
          
-instance (GVersion f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
-    gwriteSmart fmt con@(M1 x) multCons index fields _
+
+instance (GVersion f, ConList f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
+    gwriteSmart fmt con@(M1 x) [] _ --- single constructor
         = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
-             fields' <-
-                 if multCons
-                    then return fields
-                    else getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
-             let index'
-                   | multCons
-                   = index
-                   | otherwise
-                   = 0
-             let cons = C (T.pack $ conName (undefined :: M1 C c f p)) fields'
-                          multCons index' True
+             [cons] <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) 0
              return $ return $ \(M1 x) -> withCons fmt cons $
-               do wrapped <- gwriteSmart fmt x multCons index' fields' types
+               do wrapped <- gwriteSmart fmt x [] types
+                  getter <- wrapped
+                  getter x
+    gwriteSmart fmt con@(M1 x) [cons] _ --- sumtype constructor
+        = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
+             return $ return $ \(M1 x) -> withCons fmt cons $
+               do wrapped <- gwriteSmart fmt x [] types
                   getter <- wrapped
                   getter x
     greadSmart fmt [] _
         = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
-             fields <- getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
-             let con = C (T.pack $ conName (undefined :: M1 C c f p)) fields False 0 True
-                 fieldN =
-                    case cfields con of
-                      Empty -> 0
-                      NF x -> x
-                      LF xs -> length xs
+             [cons] <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) 0
              wrapped <- greadSmart fmt [] types
              return $ return $
-                    liftM (fmap M1) $ readCons fmt [(con, join wrapped)]
+                    liftM (fmap M1) $ readCons fmt [(cons, join wrapped)]
     greadSmart fmt conList _
         = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
-             let [con, _empty] = conList
-             let fieldN =
-                    case cfields con of
-                      Empty -> 0
-                      NF x -> x
-                      LF xs -> length xs
              wrapped <- greadSmart fmt [] types
              return $ return $
                  liftM (fmap M1) $
-                     readCons fmt $ zip conList $ repeat $ join wrapped
+                     readCons fmt $ zip (conList++[emptyCons]) $ repeat $ join wrapped
 
 instance (Selector s, GSmartCopy f, GVersion f) => GSmartCopy (M1 S s f) where
-    gwriteSmart fmt (M1 a) multCons conInd fields types
+    gwriteSmart fmt (M1 a) _ types
         = liftM (liftM (\g (M1 a) -> withField fmt $ g a)) $
-            gwriteSmart fmt a multCons conInd fields types
+            gwriteSmart fmt a [] types
     greadSmart fmt _ types
         = liftM (liftM (readField fmt . liftM (fmap M1))) $ greadSmart fmt [] types
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
-    gwriteSmart fmt (K1 a) _ _ _ types
+    gwriteSmart fmt (K1 a) _ types
         = case types of
             [(Nothing,_)] ->
                 return $ liftM (\g (K1 x) -> g x) $ mkPutter fmt False $
@@ -122,78 +108,42 @@ instance SmartCopy c => GSmartCopy (K1 a c) where
             xs ->
                 fail "Was expecting singleton list with TypeRep of a field value at " (show xs)
 
-instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmartCopy b)
+instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmartCopy b, ConList (a :+: b))
          => GSmartCopy (a :+: b) where
-    gwriteSmart fmt (L1 x) _ conInd _ _
-        = do let sels = selectors (P.Proxy :: P.Proxy (a :+: b)) conInd
-             fields1 <- getFields conInd sels
-             fields2 <- getFields (conInd + 1) sels
-             let fields'
-                   | fields1 == Empty && fields2 == Empty
-                   = Empty
-                   | fields1 == Empty && fields2 /= Empty
-                   = NF 0
-                   | otherwise
-                   = fields1
-             liftM (liftM $ \g (L1 x) -> g x) $ gwriteSmart fmt x True conInd fields' []
-    gwriteSmart fmt (R1 x) _ conInd _ _
-        = do let sels = selectors (P.Proxy :: P.Proxy (a :+: b)) conInd
-             fields1 <- getFields conInd sels
-             fields2 <- getFields (conInd + 1) sels
-             let fields'
-                   | fields1 == Empty && fields2 == Empty
-                   = Empty
-                   | fields1 /= Empty && fields2 == Empty
-                   = NF 0
-                   | otherwise
-                   = fields2
-             liftM (liftM $ \g (R1 x) -> g x) $ gwriteSmart fmt x True (conInd + 1) fields' []
-    greadSmart fmt conList _
-        = do let cindex1
+    gwriteSmart fmt (L1 x) conList _
+        = do let conInd
                    | null conList
                    = 0
                    | otherwise
-                   = cindex (last conList) + 2
-                 cindex2
+                   = toInteger $ length conList - 1
+             conListL:_ <- mkConList (P.Proxy :: P.Proxy (a :+: b)) conInd
+             liftM (liftM $ \g (L1 x) -> g x) $ gwriteSmart fmt x [conListL] []
+    gwriteSmart fmt (R1 x) conList _
+        = do let conInd
                    | null conList
-                   = 1
+                   = 0
                    | otherwise
-                   = cindex (last conList) + 2
-                 sels = selectors (P.Proxy :: P.Proxy (a :+: b)) 0
-             fields1 <- getFields cindex1 sels
-             fields2 <- getFields cindex2 sels
-             let fields1'
-                   | fields1 == Empty && fields2 == Empty
-                   = Empty
-                   | fields1 == Empty && fields2 /= Empty
-                   = NF 0
+                   = toInteger $ length conList - 1
+             _:conListR <- mkConList (P.Proxy :: P.Proxy (a :+: b)) conInd
+             liftM (liftM $ \g (R1 x) -> g x) $ gwriteSmart fmt x conListR []
+    greadSmart fmt conList _
+        = do let conInd
+                   | null conList
+                   = 0
                    | otherwise
-                   = fields1
-                 fields2'
-                   | fields1 == Empty && fields2 == Empty
-                   = Empty
-                   | fields1 /= Empty && fields2 == Empty
-                   = NF 0
-                   | otherwise
-                   = fields2
-                 cname1 = T.pack $ gconNameOf (undefined :: a f)
-                 cname2 = T.pack $ gconNameOf (undefined :: b f)
-                 -- Hack! Add dummy type to conlist to represent "isSumType".
-                 -- "Tagged" bool is not sufficient, JSON needs to know
-                 -- con-map length. Maybe there's a better way.
-                 cList1 = [C cname1 fields1' True cindex1 True, emptyCons]
-                 cList2 = [C cname2 fields2' True cindex2 True, emptyCons]
-             liftM2 (liftM2 $ withLookahead fmt cindex1)
-                    (liftM (liftM (liftM (fmap L1))) $ greadSmart fmt cList1 [])
-                    (liftM (liftM (liftM (fmap R1))) $ greadSmart fmt cList2 [])
+                   = toInteger $ length conList - 1
+             conListL:conListR <- mkConList (P.Proxy :: P.Proxy (a :+: b)) conInd
+             liftM2 (liftM2 $ withLookahead fmt conInd)
+                    (liftM (liftM (liftM (fmap L1))) $ greadSmart fmt [conListL] [])
+                    (liftM (liftM (liftM (fmap R1))) $ greadSmart fmt conListR [])
 
 instance (GSmartCopy a, GSmartCopy b, GVersion a, GVersion b) => GSmartCopy (a :*: b) where
-    gwriteSmart fmt (a :*: b) multCons conInd fields types
+    gwriteSmart fmt (a :*: b) _ types
         = case types of
             (x:xs) ->
                 liftM2 (liftM2 $ \gA gB (_:*:_) -> gA a >> gB b)
-                   (gwriteSmart fmt a multCons conInd fields [x])
-                   (gwriteSmart fmt b multCons conInd fields xs)
+                   (gwriteSmart fmt a [] [x])
+                   (gwriteSmart fmt b []  xs)
             f -> return $ return $ return $
                  mismatchFail "list with TypeReps of field values" (show f)
     greadSmart fmt conList types
@@ -209,24 +159,61 @@ instance (GSmartCopy a, GSmartCopy b, GVersion a, GVersion b) => GSmartCopy (a :
 -------------------------------------------------------------------------------
 -- Helper functions/types for accessing selector and constructor information
 -------------------------------------------------------------------------------
+
 class ConList (rep :: * -> *) where
-    mkConList :: Monad m => P.Proxy rep -> Integer -> m [Cons]
+    mkConList :: Monad m => P.Proxy rep -> Integer -> m [ConstrInfo]
 
 instance (ConList f, Datatype d) => ConList (M1 D d f) where
     mkConList _ = mkConList (P.Proxy :: P.Proxy f)
 
-instance (Selectors f, ConNames f, ConList f, Constructor c) => ConList (M1 C c f) where
+instance (Selectors f, ConList f, Constructor c) => ConList (M1 C c f) where
     mkConList _ _ =
-        do fields <- getFields 0 $ selectors (P.Proxy :: P.Proxy (M1 C c f)) 0
-           let Just i = L.elemIndex (gconNameOf (undefined :: M1 C c f x)) $
+        do let Just i = L.elemIndex (gconNameOf (undefined :: M1 C c f x)) $
                                     gconNames (undefined :: M1 C c f x)
                conInd = fromIntegral i
-           return [C (T.pack $ conName (undefined :: M1 C c f p)) fields False conInd True]
+           fields <- getFields conInd $ selectors (P.Proxy :: P.Proxy (M1 C c f)) conInd
+           return [CInfo (T.pack $ conName (undefined :: M1 C c f p)) fields False conInd]
 
-instance (ConList a, ConList b) => ConList (a :+: b) where
+instance (ConList f, ConList g, Selectors f, Selectors g, Constructor c1, Constructor c2) => ConList (M1 C c1 f  :+: M1 C c2 g) where
     mkConList _ conInd
-        = liftM2 (++) (mkConList (P.Proxy :: P.Proxy a) conInd) 
-                      (mkConList (P.Proxy :: P.Proxy b) (conInd + 1))
+        = do fields1 <-
+                 getFields conInd $ selectors (P.Proxy :: P.Proxy (M1 C c1 f :+: M1 C c2 g)) conInd
+             fields2 <-
+                 getFields (conInd + 1) $ selectors (P.Proxy :: P.Proxy (M1 C c1 g :+: M1 C c2 g)) conInd
+             let f1
+                   | fields1 == Empty && fields2 == Empty
+                   = Empty
+                   | fields1 == Empty && fields2 /= Empty
+                   = NF 0
+                   | otherwise
+                   = fields1
+                 f2
+                   | fields2 == Empty && fields1 == Empty
+                   = Empty
+                   | fields2 == Empty && fields1 /= Empty
+                   = NF 0
+                   | otherwise
+                   = fields2
+             return [ CInfo (T.pack $ conName (undefined :: M1 C c1 f p)) f1 True conInd
+                    , CInfo (T.pack $ conName (undefined :: M1 C c2 g p)) f2 True (conInd + 1)
+                    ]
+
+instance (ConList f, Selectors f, Selectors b, Constructor c, ConList b) =>
+         ConList (M1 C c f :+: b) where
+    mkConList _ conInd
+        = do fields1 <-
+                 getFields conInd $ selectors (P.Proxy :: P.Proxy (M1 C c f :+: b)) conInd
+             consB <-
+                mkConList (P.Proxy :: P.Proxy b) (conInd + 1)
+             let fieldsB = map cfields consB
+                 f1
+                   | fields1 == Empty && (filter (== Empty) fieldsB == fieldsB)
+                   = Empty
+                   | fields1 == Empty
+                   = NF 0
+                   | otherwise
+                   = fields1
+             return $ CInfo (T.pack $ conName (undefined :: M1 C c f p)) f1 True conInd : consB
 
 instance (ConList f, Selector s) => ConList (M1 S s f) where
     mkConList _ = mkConList (P.Proxy :: P.Proxy f)
@@ -242,7 +229,7 @@ instance ConList U1 where
 instance ConList (K1 R t) where
     mkConList _ _ = return []
 
-
+-------------------------------------------------------------------------------
 class Selectors (rep :: * -> *) where
     selectors :: P.Proxy rep -> Integer -> [(Integer, [String])]
 
@@ -335,3 +322,4 @@ dupRepsToNothing' [] ls = []
 dupRepsToNothing' ((x,v):xs) ls
   | Just x `elem` ls = (Nothing, v):dupRepsToNothing' xs ls
   | otherwise = (Just x, v):dupRepsToNothing' xs (Just x:ls)
+

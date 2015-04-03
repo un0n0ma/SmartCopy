@@ -35,11 +35,12 @@ import Data.Word
 -------------------------------------------------------------------------------
 import qualified Data.ByteString as BS
 
-import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
 
 import Control.Applicative
 import Data.Maybe
 import Data.Either (rights, lefts)
+import Data.Typeable
 
 
 -------------------------------------------------------------------------------
@@ -48,12 +49,12 @@ import Data.Either (rights, lefts)
 serializeSmart a = S.runPut $ smartPut sFormat a
 
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
-parseSmart = S.runGet (fromEitherM $ smartGet pFormat)
+parseSmart = S.runGet (fromEitherM $ evalStateT (smartGet pFormat) Nothing)
 
 serializeUnvers a = S.runPut $ writeSmart sFormatUnvers a
 
 parseUnvers :: SmartCopy a => BS.ByteString -> Either String a
-parseUnvers = S.runGet (fromEitherM $ readSmart pFormatUnvers)
+parseUnvers = S.runGet (fromEitherM $ evalStateT (readSmart pFormatUnvers) Nothing)
 
 -------------------------------------------------------------------------------
 -- Versioned serialization
@@ -95,13 +96,13 @@ sFormat
 -------------------------------------------------------------------------------
 -- Versioned parsing
 -------------------------------------------------------------------------------
-pFormat :: ParseFormat Get
+pFormat :: ParseFormat (StateT (Maybe Word8) Get)
 pFormat
     = ParseFormat
     { mkGetter =
           \b prevVers ->
               if b 
-                 then do v <- liftM Version S.get
+                 then do v <- lift $ liftM Version S.get
                          case constructGetterFromVersion pFormat v kind of
                            Right getter -> return getter
                            Left msg -> fail msg
@@ -109,44 +110,61 @@ pFormat
                       constructGetterFromVersion pFormat (Version prevVers) kind
     , withLookahead =
           \conInd ma mb ->
-          do c <- S.getWord8
-             if c == fromIntegral conInd
-                then ma
-                else mb
+          do prevTag <- get
+             case prevTag of
+               Nothing ->
+                 do c <- lift S.getWord8
+                    put $ Just c
+                    if c == fromIntegral conInd
+                       then ma
+                       else mb
+               Just c ->
+                 if c == fromIntegral conInd
+                    then ma
+                    else mb
     , readCons =
         \cons ->
-          case length cons of
-            0 -> noCons
-            n | ctagged $ fst $ head cons ->
-                    if cderived $ fst $ head cons
-                       then snd $ head cons
-                       else
-                         do c <- S.getWord8
-                            let conInds = map (fromIntegral . cindex . fst) cons
-                                parsers = map snd cons
-                            fromMaybe (mismatch ("constructor with index " ++ show c) (show conInds))
-                                  (lookup c (zip conInds parsers))
-              | n == 1 -> snd $ head cons
-              | otherwise ->
-                       do let conNames = map (cname . fst) cons
-                          mismatch "tagged type" (show conNames)
+          case cons of
+            [] -> noCons
+            [(CInfo _ _ False _, parser)] ->
+                parser
+            [(CInfo _ _ True _, parser)] ->
+                do let conNames = map (cname . fst) cons
+                   mismatch "tagged type" (show conNames)
+            (CInfo _ _ True _, _):_ ->
+                do prevTag <- get
+                   let conInds = map (fromIntegral . cindex . fst) cons
+                       parsers = map snd cons
+                   case prevTag of
+                     Nothing ->
+                         do c <- lift S.getWord8
+                            fromMaybe
+                              (mismatch ("constructor with index " ++ show c) (show conInds))
+                              (lookup c (zip conInds parsers))
+                     Just c ->
+                         do put Nothing
+                            fromMaybe
+                              (mismatch ("constructor with index " ++ show c) (show conInds))
+                              (lookup c (zip conInds parsers))
     , readField = id
     , readRepetition =
-          do n <- S.get
+          do n <- lift S.get
              res  <- getSmartGet pFormat >>= replicateM n
-             if null $ lefts res
-                then return $ Right $ rights res
-                else return $ Left $ head $ lefts res
-    , readInt = liftM Right S.get
-    , readChar = liftM Right S.get
-    , readBool = liftM (Right . toEnum . fromIntegral) S.getWord8
-    , readDouble = liftM Right S.get
+             case lefts res of
+               [] ->
+                   return $ Right $ rights res
+               l:_ ->
+                   return $ Left l
+    , readInt = lift $ liftM Right S.get
+    , readChar = lift $ liftM Right S.get
+    , readBool = lift $ liftM (Right . toEnum . fromIntegral) S.getWord8
+    , readDouble = lift $ liftM Right S.get
     , readString = readRepetition pFormat
     , readMaybe =
-          do b <- S.get
+          do b <- lift S.get
              if b then smartGet pFormat >>= either (return . Left) (return . Right . Just)
                   else return $ Right Nothing
-    , readBS = liftM Right S.get
+    , readBS = lift $ liftM Right S.get
     , readText = smartGet pFormat >>= either (return . Left) (return . Right . decodeUtf8)
     }
 
@@ -172,14 +190,16 @@ pFormatUnvers
     = pFormat
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , readRepetition =
-          do n <- S.get
+          do n <- lift S.get
              res  <- getSmartGet pFormatUnvers >>= replicateM n
-             if null $ lefts res
-                then return $ Right $ rights res
-                else return $ Left $ head $ lefts res
+             case lefts res of
+               [] ->
+                   return $ Right $ rights res
+               l:_ ->
+                   return $ Left l
     , readString = readRepetition pFormatUnvers
     , readMaybe =
-          do b <- S.get
+          do b <- lift S.get
              if b then liftM (fmap Just) $ readSmart pFormatUnvers
                   else return $ Right Nothing
     }

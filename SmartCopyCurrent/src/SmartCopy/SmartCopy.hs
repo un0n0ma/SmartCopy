@@ -26,7 +26,7 @@ module SmartCopy.SmartCopy
        , mismatchFail
        , noCons
        , conLookupErr
-       , Cons (..)
+       , ConstrInfo (..)
        , Fields (..)
        , emptyCons
        , base
@@ -74,7 +74,7 @@ import "mtl" Control.Monad.Writer
 
 import Control.Applicative
 import Control.Monad.IO.Class
-import Data.Typeable (TypeRep)
+import Data.Typeable hiding (Proxy)
 import GHC.Generics
 
 class SmartCopy a where
@@ -86,7 +86,7 @@ class SmartCopy a where
     default writeSmart :: (Generic a, GSmartCopy (Rep a), Monad m)
                        => SerializationFormat m -> a -> m ()
     writeSmart fmt a
-        = do wrapped <- gwriteSmart fmt (from a) False 0 Empty []
+        = do wrapped <- gwriteSmart fmt (from a) [] []
              putter <- wrapped
              putter (from a)
     readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
@@ -101,14 +101,12 @@ class GSmartCopy t where
     gwriteSmart :: Monad m
                 => SerializationFormat m
                 -> t x
-                -> Bool -- Sum type?
-                -> Integer -- Constructor index
-                -> Fields
+                -> [ConstrInfo]
                 -> [(Maybe TypeRep, Int32)]
                 -> m (m (t x -> m ()))
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
-               -> [Cons] -- ConList
+               -> [ConstrInfo]
                -> [(Maybe TypeRep, Int32)]
                -> m (m (m (Either String (t x))))
 -------------------------------------------------------------------------------
@@ -119,7 +117,7 @@ data SerializationFormat m
     = SerializationFormat
     { mkPutter :: SmartCopy a => Bool -> Int32 -> m (a -> m ())
     --- Bool: save byte by not writing out version
-    , withCons :: Cons -> m () -> m ()
+    , withCons :: ConstrInfo -> m () -> m ()
     , withField :: m () -> m ()
     , writeRepetition :: SmartCopy a => [a] -> m ()
     , writeInt :: Int -> m ()
@@ -139,7 +137,7 @@ data ParseFormat m
     --- Bool: save byte by not writing out version. Int32: Version of duplicate type.
     , withLookahead :: forall a.
             Integer -> m (Either String a) -> m (Either String a) -> m (Either String a)
-    , readCons :: forall a. [(Cons, m (Either String a))] -> m (Either String a)
+    , readCons :: forall a. [(ConstrInfo, m (Either String a))] -> m (Either String a)
     , readField :: forall a. m (Either String a) -> m (Either String a)
     , readRepetition :: SmartCopy a => m (Either String [a])
     , readInt :: m (Either String Int)
@@ -179,17 +177,15 @@ vNotFoundPutter s = "Cannot find putter associated with version " ++ s ++ "."
 -- Types
 -------------------------------------------------------------------------------
 
-data Cons
-    = C
+data ConstrInfo
+    = CInfo
     { cname :: T.Text
     , cfields :: Fields
     , ctagged :: Bool
     , cindex :: Integer
-    , cderived :: Bool
-      ---- Needed for derived SafeCopy-Instances: when lookahead for sumtypes is
-      ---- done in Generic-Instance "readCons" function musn't read constructor tag.
     }
     deriving (Show, Eq)
+
 
 data Fields = NF Int
             | LF [Label]
@@ -199,8 +195,9 @@ data Fields = NF Int
 
 type Label = T.Text
 
-emptyCons :: Cons
-emptyCons = C T.empty Empty False 0 True
+emptyCons :: ConstrInfo
+emptyCons = CInfo T.empty Empty False 0
+
 -------------------------------------------------------------------------------
 -- Version control
 -------------------------------------------------------------------------------

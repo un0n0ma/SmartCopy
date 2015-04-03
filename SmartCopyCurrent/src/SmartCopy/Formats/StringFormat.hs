@@ -178,34 +178,33 @@ pFormat
                  else either fail return $
                       constructGetterFromVersion pFormat (Version prevVer) kind
     , withLookahead =
-         \_ ma mb ->
-         do consumed <- get
-            res <- ma
-            case res of
-              Left _ ->
-                  put consumed >> mb
-              r@(Right _) ->
-                  return r
+          \_ ma mb ->
+          do consumed <- get
+             res <- ma
+             case res of
+               Left _ ->
+                   put consumed >> mb
+               r@(Right _) ->
+                   return r
     , readCons =
-         \cons ->
-             do str <- get
-                let conNames = map (cname . fst) cons
-                    parsers = map snd cons
-                case length cons of
-                  0 -> noCons
-                  _ ->
-                     do con <- startCons
-                        case lookup (T.pack con) (zip conNames parsers) of
-                          Just parser ->
-                             parser
-                          f -> conLookupErr (show con) (show conNames)
+          \cons ->
+              do str <- get
+                 let conNames = map (cname . fst) cons
+                     parsers = map snd cons
+                 case cons of
+                   [] -> noCons
+                   _ ->
+                      do con <- startCons
+                         case lookup (T.pack con) (zip conNames parsers) of
+                           Just parser ->
+                              parser
+                           f -> conLookupErr (show con) (show conNames)
     , readField =
           \ma ->
               do rest <- readOpen
                  res <- ma
                  _ <- readClose
                  return res
-
     , readRepetition =
           do readVersion
              str' <- get
@@ -231,13 +230,14 @@ pFormat
                       return $ Right num
                [] -> mismatch "Int" prim
     , readChar =
-         do str <- get
-            let prim = filter (/=' ') str
-            case length prim of
-              0 -> mismatch "Char" prim
-              _ ->
-                  do put $ tail prim
-                     return $ Right $ head prim 
+          do str <- get
+             let prim = filter (/=' ') str
+             case prim of
+               [] ->
+                   mismatch "Char" prim
+               h:t ->
+                   do put t
+                      return $ Right h
     , readBool =
           do str <- get
              let prim = filter (/=' ') str
@@ -252,9 +252,9 @@ pFormat
                [] -> mismatch "Double" prim
     , readString =
           do str <- get
-             let prim = filter (/=' ') str
-             put $ snd $ delimit prim
-             return $ Right $ fst $ delimit prim
+             let (prim, rest) = delimit $ filter (/=' ') str
+             put rest
+             return $ Right prim
     , readMaybe =
           do str' <- get
              let str = filter (/=' ') str'
@@ -264,14 +264,14 @@ pFormat
                 else liftM (fmap Just) $ smartGet pFormat
     , readBS =
          do str <- get
-            let prim = filter (/=' ') str
-            put $ snd $ delimit prim
-            return $ Right $ BSC.pack $ fst $ delimit prim
+            let (prim, rest) = delimit $ filter (/=' ') str
+            put rest
+            return $ Right $ BSC.pack prim
     , readText =
          do str <- get
-            let prim = filter (/=' ') str
-            put $ snd $ delimit prim
-            return $ Right $ T.pack $ fst $ delimit prim
+            let (prim, rest) = delimit $ filter (/=' ') str
+            put rest
+            return $ Right $ T.pack prim
     }
     where readBool' prim
               | startswith "True" prim =

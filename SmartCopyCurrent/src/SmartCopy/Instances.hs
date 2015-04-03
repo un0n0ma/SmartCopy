@@ -26,7 +26,6 @@ import Data.Int (Int32)
 import Control.Applicative
 import Control.Monad (liftM2, liftM)
 
-
 instance SmartCopy a => SmartCopy (SC.Prim a) where
     version = 0
     kind = primitive

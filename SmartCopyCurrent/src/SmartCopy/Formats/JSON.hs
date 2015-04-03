@@ -11,6 +11,8 @@ module SmartCopy.Formats.JSON
        , serializeWith
        , encodeUnvers
        , encodeSmart
+       , decodeUnvers
+       , decodeSmart
        )
 where
 
@@ -29,7 +31,7 @@ import Data.Aeson.Encode (encodeToTextBuilder)
 import Data.Aeson.Utils (fromFloatDigits)
 import Data.Text.Lazy.Builder (toLazyText)
 import Data.Text.Lazy.Encoding (encodeUtf8, decodeUtf8)
-import qualified Data.Aeson as Json (Value(..), object)
+import qualified Data.Aeson as Json (Value(..), object, decode)
 import qualified Data.Aeson.Types as JT (Pair)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
@@ -51,11 +53,20 @@ import Data.Maybe
 import Data.Either (rights, lefts, either)
 
 
+decodeUnvers :: SmartCopy a => LBS.ByteString -> Fail a
+decodeUnvers bs = maybe (Fail $ decodeErr bs) parseUnvers (Json.decode bs :: Maybe Json.Value)
+
+decodeSmart :: SmartCopy a => LBS.ByteString -> Fail a
+decodeSmart bs = maybe (Fail $ decodeErr bs) parseSmart (Json.decode bs :: Maybe Json.Value)
+
+decodeErr bs = "Failed while decoding ByteString " ++ show bs ++ " into Json Value."
+
 encodeUnvers :: SmartCopy a => a -> LBS.ByteString
 encodeUnvers = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeUnvers
 
 encodeSmart :: SmartCopy a => a -> LBS.ByteString
 encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
+
 -------------------------------------------------------------------------------
 --  Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
@@ -97,42 +108,42 @@ sFormat
                      lift $ put $ Json.object resObj
     , withCons =
           \cons ma ->
-          if ctagged cons
-             then case cfields cons of
-                    Empty ->
-                      lift $ put $ Json.String $ cname cons
-                    NF 0 ->
-                      lift $ put $ Json.object [("tag", Json.String $ cname cons),
-                                                ("contents", Json.Array V.empty)]
-                    NF i ->
-                      do put $ Left $ Json.Array V.empty
-                         _ <- ma
-                         Left res <- get
-                         let resObj = Json.object [("tag", Json.String $ cname cons),
-                                                   ("contents", res)]
-                         lift $ put resObj
-                    LF ls ->
-                      do let fields = zip ls (repeat Json.Null)
-                             fieldsWithInd = zip [0..] $ map (Json.object . return) fields
-                         put $ Right $ map (first (T.pack . show)) fieldsWithInd
-                         _ <- ma
-                         Right res <- get
-                         let resObj 
-                              = Json.object $ ("tag", Json.String $ cname cons):res
-                         lift $ put resObj
-             else case cfields cons of
-                   LF ls ->
-                     do let fields = zip ls (repeat Json.Null)
-                            fieldsWithInd = zip [0..] $ map (Json.object . return) fields
-                        put $ Right $ map (first (T.pack . show)) fieldsWithInd
-                        _ <- ma
-                        Right res <- get
-                        lift $ put $ Json.object res
-                   _ ->
-                     do put $ Left $ Json.Array V.empty
-                        _ <- ma
-                        Left res <- get
-                        lift $ put res
+              if ctagged cons
+                 then case cfields cons of
+                        Empty ->
+                          lift $ put $ Json.String $ cname cons
+                        NF 0 ->
+                          lift $ put $ Json.object [("tag", Json.String $ cname cons),
+                                                    ("contents", Json.Array V.empty)]
+                        NF i ->
+                          do put $ Left $ Json.Array V.empty
+                             _ <- ma
+                             Left res <- get
+                             let resObj = Json.object [("tag", Json.String $ cname cons),
+                                                       ("contents", res)]
+                             lift $ put resObj
+                        LF ls ->
+                          do let fields = zip ls (repeat Json.Null)
+                                 fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                             put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                             _ <- ma
+                             Right res <- get
+                             let resObj 
+                                  = Json.object $ ("tag", Json.String $ cname cons):res
+                             lift $ put resObj
+                 else case cfields cons of
+                       LF ls ->
+                         do let fields = zip ls (repeat Json.Null)
+                                fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                            put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                            _ <- ma
+                            Right res <- get
+                            lift $ put $ Json.object res
+                       _ ->
+                         do put $ Left $ Json.Array V.empty
+                            _ <- ma
+                            Left res <- get
+                            lift $ put res
     , withField =
           \ma ->
               do fields <- get
@@ -151,34 +162,37 @@ sFormat
                    f -> fail $ "No fields found at " ++ show f
     , writeRepetition =
           \ar ->
-              case length ar of
-                0 -> lift $ put $ array []
-                1 -> do smartPut sFormat (head ar)
-                        ar <- lift get
-                        lift $ put $ array [ar]
-                n -> do accArray [] ar (writeSmart sFormat)
-                        ar <- lift get
-                        lift $ put $ arConcat ar
+              case ar of
+                []  ->
+                    lift $ put $ array []
+                [x] ->
+                    do smartPut sFormat x
+                       ar' <- lift get
+                       lift $ put $ array [ar']
+                xs  ->
+                    do accArray [] ar (writeSmart sFormat)
+                       ar <- lift get
+                       lift $ put $ arConcat ar
     , writeMaybe =
           \ma ->
-          case ma of
-            Just a -> smartPut sFormat a
-            Nothing ->
-                do lift $ put Json.Null
-                   return ()
+              case ma of
+                Just a -> smartPut sFormat a
+                Nothing ->
+                    do lift $ put Json.Null
+                       return ()
     }
     where mkArray (Json.Array ar) i = Json.Array $ ar `V.snoc` Json.Number i
           mkArray val i = array $ val:[Json.Number i]
           takeEmptyField [] notnull =
               fail "Encoding failure. Got more fields than expected for constructor."
           takeEmptyField map notnull =
-                 case head map of
-                   (_, Json.Object o) ->
+                 case map of
+                   h@(_, Json.Object o):t ->
                        case M.toList o of
                          [(_, Json.Null)] ->
-                             return (head map, notnull ++ tail map)
-                         _ -> takeEmptyField (tail map) (head map:notnull)
-                   x -> takeEmptyField (tail map) (x:notnull)
+                             return (h, notnull ++ tail map)
+                         _ -> takeEmptyField t (h:notnull)
+                   x:t -> takeEmptyField t (x:notnull)
 
 -------------------------------------------------------------------------------
 --  Versioned parsing
@@ -191,265 +205,266 @@ pFormat
     = ParseFormat
     { mkGetter =
           \_ prevVer ->
-               return $
-               do (version, rest) <- readVersion
-                  case version of
-                    Just v ->
-                        case constructGetterFromVersion pFormat v kind of
-                          Right getter ->
-                              local (const $ Right rest) getter 
-                          Left msg -> return $ Left msg
-                    Nothing -> readSmart pFormat
+              return $
+              do (version, rest) <- readVersion
+                 case version of
+                   Just v ->
+                       case constructGetterFromVersion pFormat v kind of
+                         Right getter ->
+                             local (const $ Right rest) getter 
+                         Left msg -> return $ Left msg
+                   Nothing -> readSmart pFormat
     , withLookahead =
           \_ ma mb ->
-          do val <- ask
-             res <- ma
-             case res of
-               Left _ ->
-                   local (const val) mb
-               r@(Right _) ->
-                   return r
+              do val <- ask
+                 res <- ma
+                 case res of
+                   Left _ ->
+                       local (const val) mb
+                   r@(Right _) ->
+                       return r
     , readCons =
-        \cons ->
-            do val <- ask
-               let conNames = map (cname . fst) cons
-                   parsers = map snd cons
-                   conFields = map (cfields . fst) cons
-               case length cons of
-                 0 -> noCons
-                 1 -> case val of
-                        Right obj@(Json.Object _) ->
-                            do let con = head conNames
-                                   parser = head parsers
-                               _ <- putFieldsFromObj con cons
-                               lift $ put obj
-                               local (const $ Right obj) parser
-                        Right ar@(Json.Array _) ->
-                            do _ <- putFieldsFromArr ar
-                               lift $ put ar
-                               local (const $ Right ar) (head parsers)
-                        Right otherPrim ->
-                            do let parser = snd $ head cons
-                               case cfields $ fst $ head cons of
-                                 Empty ->
-                                     do lift $ put otherPrim
-                                        local (const $ Right otherPrim) parser
-                                 NF 0 ->
-                                     do lift $ put otherPrim
-                                        local (const $ Right otherPrim) parser
-                                 NF 1 ->
-                                     do lift $ put otherPrim
-                                        local (const $ Right otherPrim) parser
-                                 _      -> mismatch "single-field constructor" (show otherPrim)
-                        Left msg -> return $ Left msg
-                 _ ->
-                    case val of
-                      Right (Json.Object obj) ->
-                          case M.member (T.pack "tag") obj of
-                            True -> do
-                                let Just (Json.String con) = M.lookup (T.pack "tag") obj
-                                case M.lookup "contents" obj of
-                                  Just args ->
-                                      case lookup con (zip conNames parsers) of
-                                        Just parser ->
-                                            do putFieldsFromObj con cons
-                                               lift $ put args
-                                               local (const $ Right args) parser
+          \cons ->
+              do val <- ask
+                 let conNames@(cn:_) = map (cname . fst) cons
+                     parsers = map snd cons
+                     conFields = map (cfields . fst) cons
+                 case cons of
+                   [] ->
+                       noCons
+                   [(x, parser)] ->
+                       case val of
+                         Right obj@(Json.Object _) ->
+                             do _ <- putFieldsFromObj cn cons
+                                lift $ put obj
+                                local (const $ Right obj) parser
+                         Right ar@(Json.Array _) ->
+                             do _ <- putFieldsFromArr ar
+                                lift $ put ar
+                                local (const $ Right ar) parser
+                         Right otherPrim ->
+                             case cfields x of
+                               Empty ->
+                                   do lift $ put otherPrim
+                                      local (const $ Right otherPrim) parser
+                               NF 0 ->
+                                   do lift $ put otherPrim
+                                      local (const $ Right otherPrim) parser
+                               NF 1 ->
+                                   do lift $ put otherPrim
+                                      local (const $ Right otherPrim) parser
+                               _      ->
+                                   mismatch "single-field constructor" (show otherPrim)
+                         Left msg ->
+                             return $ Left msg
+                   _ ->
+                      case val of
+                        Right (Json.Object obj) ->
+                            if M.member (T.pack "tag") obj
+                               then
+                                   do let Just (Json.String con) = M.lookup (T.pack "tag") obj
+                                      case M.lookup "contents" obj of
+                                        Just args ->
+                                            case lookup con (zip conNames parsers) of
+                                              Just parser ->
+                                                  do putFieldsFromObj con cons
+                                                     lift $ put args
+                                                     local (const $ Right args) parser
+                                              Nothing ->
+                                                  conLookupErr (T.unpack con) (show conNames)
                                         Nothing ->
-                                            conLookupErr (T.unpack con) (show conNames)
-                                  Nothing ->
-                                      do let args = M.delete (T.pack "tag") obj
-                                         case lookup con (zip conNames parsers) of
-                                           Just parser ->
-                                               do _ <- putFieldsFromObj con cons
-                                                  lift $ put $ object args
-                                                  local (const $ Right $ object args) parser
-                                           Nothing ->
-                                               conLookupErr (T.unpack con) (show conNames)
-                            f -> mismatch "tagged type" (show obj)
-                      Right ar@(Json.Array _) ->
-                          case fromArray ar of
-                            o@(Json.Object _):xs ->
-                                  do lift $ put o
-                                     res <- local (const $ Right o) (readCons pFormat cons)
-                                     lift $ put $ array xs
-                                     return res
-                            nameOrField@(Json.String tag):xs ->
-                                case lookup tag (zip conNames parsers) of
-                                  Just parser ->
-                                      do lift $ put nameOrField
-                                         res <- local (const $ Right nameOrField) parser
-                                         lift $ put $ array xs
-                                         return res
-                                  Nothing ->
-                                      conLookupErr (show tag) (show conNames)
-                            f -> mismatch "tagged type" (show f)
-                      Right tag@(Json.String s) ->
-                          case lookup s (zip conNames parsers) of
-                            Just parser ->
-                                local (const $ Right tag) parser
-                            Nothing ->
-                                conLookupErr (show tag) (show conNames)
-                      _ ->
-                          mismatch "tagged type" (show val)
+                                            do let args = M.delete (T.pack "tag") obj
+                                               case lookup con (zip conNames parsers) of
+                                                 Just parser ->
+                                                     do _ <- putFieldsFromObj con cons
+                                                        lift $ put $ object args
+                                                        local (const $ Right $ object args) parser
+                                                 Nothing ->
+                                                     conLookupErr (T.unpack con) (show conNames)
+                               else mismatch "tagged type" (show obj)
+                        Right ar@(Json.Array _) ->
+                            case fromArray ar of
+                              o@(Json.Object _):xs ->
+                                    do lift $ put o
+                                       res <- local (const $ Right o) (readCons pFormat cons)
+                                       lift $ put $ array xs
+                                       return res
+                              nameOrField@(Json.String tag):xs ->
+                                  case lookup tag (zip conNames parsers) of
+                                    Just parser ->
+                                        do lift $ put nameOrField
+                                           res <- local (const $ Right nameOrField) parser
+                                           lift $ put $ array xs
+                                           return res
+                                    Nothing ->
+                                        conLookupErr (show tag) (show conNames)
+                              f -> mismatch "tagged type" (show f)
+                        Right tag@(Json.String s) ->
+                            case lookup s (zip conNames parsers) of
+                              Just parser ->
+                                  local (const $ Right tag) parser
+                              Nothing ->
+                                  conLookupErr (show tag) (show conNames)
+                        _ ->
+                            mismatch "tagged type" (show val)
     , readField =
-        \ma ->
-            do fields <- lift $ lift $ lift get
-               case fields of
-                 [] -> ma
-                 xs ->
-                     case snd $ head xs of
-                       Nothing ->
-                           do v <- ask
-                              case v of
-                                Right ar@(Json.Array a) ->
-                                     do res <-
-                                          local (const $ Right $ array $ drop
-                                                (fst $ head xs) $ fromArray ar) ma
-                                        lift $ lift $ lift $ put $ tail xs
-                                        return res
-                                Right n ->
-                                     do res <- local (const $ Right n) ma
-                                        lift $ lift $ lift $ put $ tail xs
-                                        return res
-                                Left msg -> return $ Left msg   
-                                        
-                       Just lab ->
-                           do Right (Json.Object obj) <- ask
-                              let index = T.pack $ show $ fst $ head xs
-                              let label = T.pack lab
-                                  labField = M.lookup index obj
-                              case labField of
-                                Just (Json.Object obj') ->
-                                    case M.toList obj' of
-                                      [(label, val)] ->
-                                          do res <- local (const $ Right val) ma
-                                             lift $ lift $ lift $ put $ tail xs
-                                             return res
-                                      f ->
-                                          mismatch ("labeled field " ++ T.unpack label) (show obj')
-                                         
-                                Nothing ->
-                                    mismatch ("field with index " ++ T.unpack index) (show obj)
-
+          \ma ->
+              do fields <- lift $ lift $ lift get
+                 case fields of
+                   [] -> ma
+                   (h, Nothing):t ->
+                       do v <- ask
+                          case v of
+                            Right ar@(Json.Array a) ->
+                                 do res <-
+                                        local (const $ Right $ array $ drop h $ fromArray ar) ma
+                                    lift $ lift $ lift $ put t
+                                    return res
+                            Right n ->
+                                 do res <- local (const $ Right n) ma
+                                    lift $ lift $ lift $ put t
+                                    return res
+                            Left msg -> return $ Left msg   
+                   (h, Just lab):t ->
+                       do Right (Json.Object obj) <- ask
+                          let index = T.pack $ show h
+                          let label = T.pack lab
+                              labField = M.lookup index obj
+                          case labField of
+                            Just (Json.Object obj') ->
+                                case M.toList obj' of
+                                  [(label, val)] ->
+                                      do res <- local (const $ Right val) ma
+                                         lift $ lift $ lift $ put t
+                                         return res
+                                  f ->
+                                      mismatch ("labeled field " ++ T.unpack label) (show obj')
+                            Nothing ->
+                                mismatch ("field with index " ++ T.unpack index) (show obj)
     , readRepetition =
-            do val <- ask
-               case val of
-                 Right (Json.Array ar) ->
-                     case V.toList ar of
-                       ar1@(Json.Array _):_ ->
-                           do lift $ put ar1
-                              local (const $ Right ar1) $
-                                  do res <- getSmartGet pFormat >>=
-                                            replicateM (length $ fromArray ar1)
-                                     if null (lefts res)
-                                        then return $ Right $ rights res
-                                        else return $ Left []
-                       _ ->
-                           do res <- forM (V.toList ar) (\el -> local (const $ Right el)
-                                          (readSmart pFormat))
-                              if null (lefts res)
-                                 then return $ Right $ rights res
-                                 else return $ Left []
-                                
-                 _ -> mismatch "Array" (show val)
+          do val <- ask
+             case val of
+               Right (Json.Array ar) ->
+                   case V.toList ar of
+                     ar1@(Json.Array _):_ ->
+                         do lift $ put ar1
+                            local (const $ Right ar1) $
+                                do res <-
+                                       getSmartGet pFormat >>= replicateM (length $ fromArray ar1)
+                                   if null (lefts res)
+                                      then return $ Right $ rights res
+                                      else return $ Left []
+                     _ ->
+                         do res <-
+                                forM (V.toList ar) $
+                                     \el -> local (const $ Right el) (readSmart pFormat)
+                            if null (lefts res)
+                               then return $ Right $ rights res
+                               else return $ Left []
+                              
+               _ -> mismatch "Array" (show val)
     , readInt =
-        do x <- ask
-           case x of
-             Right (Json.Number n) ->
-                  return $ Right $ floor n
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Number n:xs -> return $ Right $ floor n
-                      _ -> mismatch "Number" (show x)
-             _ -> mismatch "Number" (show x)
-    
+          do x <- ask
+             case x of
+               Right (Json.Number n) ->
+                    return $ Right $ floor n
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Number n:xs ->
+                            return $ Right $ floor n
+                        _ ->
+                            mismatch "Number" (show x)
+               _ -> mismatch "Number" (show x)
     , readChar =
-        do x <- ask
-           case x of
-             Right (Json.String s) ->
-                  let str = T.unpack s in
-                  if length str == 1
-                     then return $ Right $ head str
-                     else mismatch "Char" (T.unpack s)
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.String s:xs ->
-                          let str = T.unpack s in
-                          if length str == 1
-                             then return $ Right $ head str
-                             else mismatch "Char" (T.unpack s)
-                      _ -> mismatch "Char" (show x)
-             _ -> mismatch "Char" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) ->
+                   let str = T.unpack s in
+                   case str of
+                     [x] ->
+                         return $ Right x
+                     _ ->
+                         mismatch "Char" str
+               Right ar@(Json.Array _) ->
+                   case fromArray ar of
+                     Json.String s:xs ->
+                         let str = T.unpack s in
+                         case str of
+                           [x] ->
+                               return $ Right x
+                           _ ->
+                               mismatch "Char" (T.unpack s)
+                     _ -> mismatch "Char" (show x)
+               _ -> mismatch "Char" (show x)
     , readBool =
-        do x <- ask
-           case x of
-             Right (Json.Bool b) -> return $ Right b
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Bool b:xs -> return $ Right b
-                      _ -> mismatch "Bool" (show x)
-             _ -> mismatch "Bool" (show x)
+          do x <- ask
+             case x of
+               Right (Json.Bool b) -> return $ Right b
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Bool b:xs -> return $ Right b
+                        _ -> mismatch "Bool" (show x)
+               _ -> mismatch "Bool" (show x)
     , readDouble =
-        do x <- ask
-           case x of
-             Right (Json.Number d) -> return $ Right $ realToFrac d
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Number d:xs -> return $ Right $ realToFrac d
-                      _ -> mismatch "Number" (show x)
-             _ -> mismatch "Number" (show x)
+          do x <- ask
+             case x of
+               Right (Json.Number d) -> return $ Right $ realToFrac d
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Number d:xs -> return $ Right $ realToFrac d
+                        _ -> mismatch "Number" (show x)
+               _ -> mismatch "Number" (show x)
     , readString =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right $ T.unpack s
-             Right ar@(Json.Array _) ->
-                 case fromArray ar of
-                   Json.String s:xs -> return $ Right $ T.unpack s
-                   _ -> mismatch "String" (show x)
-             _ -> mismatch "String" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right $ T.unpack s
+               Right ar@(Json.Array _) ->
+                   case fromArray ar of
+                     Json.String s:xs -> return $ Right $ T.unpack s
+                     _ -> mismatch "String" (show x)
+               _ -> mismatch "String" (show x)
     , readMaybe =
-        do x <- ask
-           case x of
-             Right Json.Null -> return $ Right Nothing
-             Right ar@(Json.Array _) ->
-                case fromArray ar of
-                  Json.Null:xs -> return $ Right Nothing
-                  xs ->
-                      do lift $ put ar
-                         res <- smartGet pFormat
-                         case res of
-                           Right a ->
-                               return $ Right $ Just a
-                           Left msg ->
-                               return $ Left msg
-             Right val ->
-                 do lift $ put val
-                    res <- smartGet pFormat
-                    case res of
-                      Right a ->
-                          return $ Right $ Just a
-                      Left msg ->
-                          return $ Left msg
-             Left msg -> return $ Left msg                              
+          do x <- ask
+             case x of
+               Right Json.Null -> return $ Right Nothing
+               Right ar@(Json.Array _) ->
+                  case fromArray ar of
+                    Json.Null:xs -> return $ Right Nothing
+                    xs ->
+                        do lift $ put ar
+                           res <- smartGet pFormat
+                           case res of
+                             Right a ->
+                                 return $ Right $ Just a
+                             Left msg ->
+                                 return $ Left msg
+               Right val ->
+                   do lift $ put val
+                      res <- smartGet pFormat
+                      case res of
+                        Right a ->
+                            return $ Right $ Just a
+                        Left msg ->
+                            return $ Left msg
+               Left msg -> return $ Left msg                              
     , readBS =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
-                      _ -> mismatch "ByteString" (show x)
-             _ -> mismatch "ByteString" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
+                        _ -> mismatch "ByteString" (show x)
+               _ -> mismatch "ByteString" (show x)
     , readText =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right s
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.String s:xs -> return $ Right s
-                      _ -> mismatch "Text" (show x)
-             _ -> mismatch "Text" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right s
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.String s:xs -> return $ Right s
+                        _ -> mismatch "Text" (show x)
+               _ -> mismatch "Text" (show x)
     }
     where withoutVersion o@(Json.Object obj)
               | M.member (T.pack "version") obj && M.member (T.pack "object") obj
@@ -523,39 +538,39 @@ sFormatUnvers
     { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
     , withCons =
           \cons ma ->
-          if ctagged cons
-             then case cfields cons of
-                    Empty ->
-                      lift $ put $ Json.String $ cname cons
-                    NF 0 ->
-                      lift $ put $ Json.object [("tag", Json.String $ cname cons),
-                                                ("contents", Json.Array V.empty)]
-                    NF i ->
-                      do put $ Left $ Json.Array V.empty
-                         _ <- ma
-                         Left res <- get
-                         let resObj = Json.object [("tag", Json.String $ cname cons),
-                                                   ("contents", arConcat res)]
-                         lift $ put resObj
-                    LF ls ->
-                      do put $ Right $ zip ls (repeat Json.Null)
-                         _ <- ma
-                         Right res <- get
-                         let resObj 
-                              = Json.object $ ("tag", Json.String $ cname cons):res
-                         lift $ put resObj
-             else case cfields cons of
-                   LF ls ->
-                     do let fields = zip ls (repeat Json.Null)
-                        put $ Right fields
-                        _ <- ma
-                        Right res <- get
-                        lift $ put $ Json.object res
-                   _ ->
-                     do put $ Left $ Json.Array V.empty
-                        _ <- ma
-                        Left res <- get
-                        lift $ put $ arConcat res
+              if ctagged cons
+                 then case cfields cons of
+                        Empty ->
+                          lift $ put $ Json.String $ cname cons
+                        NF 0 ->
+                          lift $ put $ Json.object [("tag", Json.String $ cname cons),
+                                                    ("contents", Json.Array V.empty)]
+                        NF i ->
+                          do put $ Left $ Json.Array V.empty
+                             _ <- ma
+                             Left res <- get
+                             let resObj = Json.object [("tag", Json.String $ cname cons),
+                                                       ("contents", arConcat res)]
+                             lift $ put resObj
+                        LF ls ->
+                          do put $ Right $ zip ls (repeat Json.Null)
+                             _ <- ma
+                             Right res <- get
+                             let resObj 
+                                  = Json.object $ ("tag", Json.String $ cname cons):res
+                             lift $ put resObj
+                 else case cfields cons of
+                       LF ls ->
+                         do let fields = zip ls (repeat Json.Null)
+                            put $ Right fields
+                            _ <- ma
+                            Right res <- get
+                            lift $ put $ Json.object res
+                       _ ->
+                         do put $ Left $ Json.Array V.empty
+                            _ <- ma
+                            Left res <- get
+                            lift $ put $ arConcat res
     
     , withField =
           \ma ->
@@ -574,13 +589,13 @@ sFormatUnvers
     
     , writeRepetition =
           \ar ->
-              case length ar of
-                0 -> lift $ put $ array []
-                1 ->
-                    do writeSmart sFormatUnvers (head ar)
+              case ar of
+                [] -> lift $ put $ array []
+                [x] ->
+                    do writeSmart sFormatUnvers x
                        el <- lift get
                        lift $ put $ array [el]
-                n ->
+                _ ->
                     do accArray [] ar (writeSmart sFormatUnvers)
                        ar <- lift get
                        lift $ put $ arConcat ar
@@ -627,9 +642,9 @@ sFormatUnvers
     where takeEmptyField [] notnull =
               fail "Encoding failure. Got more fields than expected for constructor."
           takeEmptyField map notnull =
-                 case head map of
-                   f@(_, Json.Null) -> return (f, notnull ++ tail map)
-                   x -> takeEmptyField (tail map) (x:notnull)
+              case map of
+                h@(_, Json.Null):t -> return (h, notnull ++ t)
+                h:t -> takeEmptyField t (h:notnull)
 
 -------------------------------------------------------------------------------
 --  Unversioned parsing
@@ -641,66 +656,62 @@ pFormatUnvers
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , withLookahead =
           \_ ma mb ->
-          do val <- ask
-             res <- ma
-             case res of
-               Left _ ->
-                   local (const val) mb
-               r@(Right _) ->
-                   return r
+              do val <- ask
+                 res <- ma
+                 case res of
+                   Left _ ->
+                       local (const val) mb
+                   r@(Right _) ->
+                       return r
     , readCons =
         \cons ->
             do val <- ask
-               let conNames = map (cname . fst) cons
+               let conNames@(cn:_) = map (cname . fst) cons
                    parsers = map snd cons
                    conFields = map (cfields . fst) cons
-               case length cons of
-                 0 -> noCons
-                 1 -> case val of
+               case cons of
+                 [] -> noCons
+                 [(h, parser)] -> case val of
                         Right (obj@(Json.Object _)) ->
-                            do let con = head conNames
-                                   parser = head parsers
-                               _ <- putFieldsFromObj con cons
+                            do _ <- putFieldsFromObj cn cons
                                local (const $ Right obj) parser
                         Right (ar@(Json.Array _)) ->
                             do _ <- putFieldsFromArr ar
-                               local (const $ Right ar) (head parsers)
+                               local (const $ Right ar) parser
                         Right otherPrim ->
-                            case cfields $ fst $ head cons of
+                            case cfields h of
                               Empty ->
-                                  do let parser = snd $ head cons
-                                     local (const $ Right otherPrim) parser
+                                  local (const $ Right otherPrim) parser
                               NF 0 ->
-                                  do let parser = snd $ head cons
-                                     local (const $ Right otherPrim) parser
+                                  local (const $ Right otherPrim) parser
                               NF 1 ->
-                                  do let parser = snd $ head cons
-                                     local (const $ Right otherPrim) parser
-                              _      -> mismatch "single-field constructor" (show otherPrim)
+                                  local (const $ Right otherPrim) parser
+                              _      ->
+                                  mismatch "single-field constructor" (show otherPrim)
                         Left msg -> return $ Left msg
                  _ ->
                     case val of
                       Right (Json.Object obj) ->
-                          case M.member (T.pack "tag") obj of
-                            True -> do
-                                let Just (Json.String con) = M.lookup (T.pack "tag") obj
-                                case M.lookup "contents" obj of
-                                  Just args ->
-                                      case lookup con (zip conNames parsers) of
-                                        Just parser ->
-                                            do putFieldsFromObj con cons
-                                               local (const $ Right args) parser
-                                        Nothing ->
-                                            conLookupErr (T.unpack con) (show conNames)
-                                  Nothing ->
-                                      do let args = M.delete (T.pack "tag") obj
-                                         case lookup con (zip conNames parsers) of
-                                           Just parser ->
-                                               do _ <- putFieldsFromObj con cons
-                                                  local (const $ Right $ object args) parser
-                                           Nothing ->
-                                            conLookupErr (T.unpack con) (show conNames)
-                            f -> mismatch "tagged type" (show obj)
+                          if M.member (T.pack "tag") obj
+                             then
+                                 do let Just (Json.String con) = M.lookup (T.pack "tag") obj
+                                    case M.lookup "contents" obj of
+                                      Just args ->
+                                          case lookup con (zip conNames parsers) of
+                                            Just parser ->
+                                                do putFieldsFromObj con cons
+                                                   local (const $ Right args) parser
+                                            Nothing ->
+                                                conLookupErr (T.unpack con) (show conNames)
+                                      Nothing ->
+                                          do let args = M.delete (T.pack "tag") obj
+                                             case lookup con (zip conNames parsers) of
+                                               Just parser ->
+                                                   do _ <- putFieldsFromObj con cons
+                                                      local (const $ Right $ object args) parser
+                                               Nothing ->
+                                                conLookupErr (T.unpack con) (show conNames)
+                             else mismatch "tagged type" (show obj)
                       Right ar@(Json.Array _) ->
                           case fromArray ar of
                             o@(Json.Object _):_ ->
@@ -721,137 +732,136 @@ pFormatUnvers
                       Left msg ->
                           mismatch "tagged type" msg
     , readField =                      
-        \ma ->
-            do fields <- lift $ lift get
-               case fields of
-                 [] -> ma
-                 xs ->
-                     case reads $ head xs of
-                       [(num, "")] ->
-                           do v <- ask
-                              case v of
-                                Right ar@(Json.Array a)  ->
-                                    do res <-
-                                         local (const $ Right $ array $ drop num $ fromArray ar) ma
-                                       put $ tail xs
-                                       return res
-                                Right n ->
-                                    do res <- local (const $ Right n) ma
-                                       put $ tail xs
-                                       return res
-                                Left msg -> return $ Left msg
-                                        
-                       [] ->
-                           do Right o@(Json.Object _) <- ask
-                              let field = T.pack $ head xs
-                              case lookup field $ fromObject o of
-                                Just test ->
-                                    do res <- local (const $ Right test) ma
-                                       put $ tail xs
-                                       return res
-                                Nothing ->
-                                    fail $ show o ++ "Fields: " ++ show xs
-                        
+          \ma ->
+              do fields <- lift $ lift get
+                 case fields of
+                   [] -> ma
+                   h:t ->
+                       case reads h of
+                         [(num, "")] ->
+                             do v <- ask
+                                case v of
+                                  Right ar@(Json.Array a)  ->
+                                      do res <-
+                                           local (const $ Right $ array $ drop num $ fromArray ar) ma
+                                         put t
+                                         return res
+                                  Right n ->
+                                      do res <- local (const $ Right n) ma
+                                         put t
+                                         return res
+                                  Left msg -> return $ Left msg
+                                          
+                         [] ->
+                             do Right o@(Json.Object _) <- ask
+                                let field = T.pack h
+                                case lookup field $ fromObject o of
+                                  Just test ->
+                                      do res <- local (const $ Right test) ma
+                                         put t
+                                         return res
+                                  Nothing ->
+                                      fail $ show o ++ "Fields: " ++ show fields
     , readRepetition =
-            do val <- ask
-               case val of
-                 Right (Json.Array ar) ->
-                     case V.toList ar of
-                       ar1@(Json.Array _):_ ->
-                           local (const $ Right ar1) (readRepetition pFormatUnvers)
-                       _ ->
-                           do res <- forM (V.toList ar) (\el -> local (const $ Right el) $
-                                          readSmart pFormatUnvers)
-                              if null (lefts res)
-                                 then return $ Right $ rights res
-                                 else return $ Left []
-                 _ -> mismatch "Array" (show val)
+          do val <- ask
+             case val of
+               Right (Json.Array ar) ->
+                   case V.toList ar of
+                     ar1@(Json.Array _):_ ->
+                         local (const $ Right ar1) (readRepetition pFormatUnvers)
+                     _ ->
+                         do res <-
+                                forM (V.toList ar)
+                                     (\el -> local (const $ Right el) $ readSmart pFormatUnvers)
+                            if null (lefts res)
+                               then return $ Right $ rights res
+                               else return $ Left []
+               _ -> mismatch "Array" (show val)
     , readInt =
-        do x <- ask
-           case x of
-             Right (Json.Number n) ->
-                  return $ Right $ floor n
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Number n:xs -> return $ Right $ floor n
-                      _ -> mismatch "Number" (show x)
-             _ -> mismatch "Number" (show x)
-    
+          do x <- ask
+             case x of
+               Right (Json.Number n) ->
+                    return $ Right $ floor n
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Number n:xs -> return $ Right $ floor n
+                        _ -> mismatch "Number" (show x)
+               _ -> mismatch "Number" (show x)
     , readChar =
-        do x <- ask
-           case x of
-             Right (Json.String s) ->
-                  let str = T.unpack s in
-                  if length str == 1
-                     then return $ Right $ head str
-                     else mismatch "Char" (T.unpack s)
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.String s:xs ->
-                          let str = T.unpack s in
-                          if length str == 1
-                             then return $ Right $ head str
-                             else mismatch "Char" (T.unpack s)
-                      _ -> mismatch "Char" (show x)
-             _ -> mismatch "Char" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) ->
+                   let str = T.unpack s in
+                   case str of
+                     [c] -> return $ Right c
+                     _ -> mismatch "Char" str
+               Right ar@(Json.Array _) ->
+                   case fromArray ar of
+                     Json.String s:xs ->
+                         let str = T.unpack s in
+                         case str of
+                           [c] -> return $ Right c
+                           _ -> mismatch "Char" (T.unpack s)
+                     _ -> mismatch "Char" (show x)
+               _ -> mismatch "Char" (show x)
     , readBool =
-        do x <- ask
-           case x of
-             Right (Json.Bool b) -> return $ Right b
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Bool b:xs -> return $ Right b
-                      _ -> mismatch "Bool" (show x)
-             _ -> mismatch "Bool" (show x)
+          do x <- ask
+             case x of
+               Right (Json.Bool b) -> return $ Right b
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Bool b:xs -> return $ Right b
+                        _ -> mismatch "Bool" (show x)
+               _ -> mismatch "Bool" (show x)
     , readDouble =
-        do x <- ask
-           case x of
-             Right (Json.Number d) -> return $ Right $ realToFrac d
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.Number d:xs -> return $ Right $ realToFrac d
-                      _ -> mismatch "Number" (show x)
-             _ -> mismatch "Number" (show x)
+          do x <- ask
+             case x of
+               Right (Json.Number d) -> return $ Right $ realToFrac d
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.Number d:xs -> return $ Right $ realToFrac d
+                        _ -> mismatch "Number" (show x)
+               _ -> mismatch "Number" (show x)
     , readString =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right $ T.unpack s
-             Right ar@(Json.Array _) ->
-                    case fromArray ar of
-                      Json.String s:xs -> return $ Right $ T.unpack s
-                      _ -> mismatch "String" (show x)
-             _ -> mismatch "String" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right $ T.unpack s
+               Right ar@(Json.Array _) ->
+                      case fromArray ar of
+                        Json.String s:xs -> return $ Right $ T.unpack s
+                        _ -> mismatch "String" (show x)
+               _ -> mismatch "String" (show x)
     , readMaybe =
-        do x <- ask
-           case x of
-             Right Json.Null -> return $ Right Nothing
-             Right ar@(Json.Array _) ->
-                case fromArray ar of
-                  Json.Null:xs -> return $ Right Nothing
-                  xs ->
-                      do res <- readSmart pFormatUnvers
-                         either (return . Left) (return . Right . Just) res
-             xs ->
-                 do res <- readSmart pFormatUnvers
-                    either (return . Left) (return . Right . Just) res
+          do x <- ask
+             case x of
+               Right Json.Null -> return $ Right Nothing
+               Right ar@(Json.Array _) ->
+                  case fromArray ar of
+                    Json.Null:xs -> return $ Right Nothing
+                    xs ->
+                        do res <- readSmart pFormatUnvers
+                           either (return . Left) (return . Right . Just) res
+               xs ->
+                   do res <- readSmart pFormatUnvers
+                      either (return . Left) (return . Right . Just) res
     , readBS =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
-             Right (ar@(Json.Array _)) ->
-                    case fromArray ar of
-                      Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
-                      _ -> mismatch "ByteString" (show x)
-             _ -> mismatch "ByteString" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
+               Right (ar@(Json.Array _)) ->
+                      case fromArray ar of
+                        Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
+                        _ -> mismatch "ByteString" (show x)
+               _ -> mismatch "ByteString" (show x)
     , readText =
-        do x <- ask
-           case x of
-             Right (Json.String s) -> return $ Right s
-             Right (ar@(Json.Array _)) ->
-                    case fromArray ar of
-                      Json.String s:xs -> return $ Right s
-                      _ -> mismatch "Text" (show x)
-             _ -> mismatch "Text" (show x)
+          do x <- ask
+             case x of
+               Right (Json.String s) -> return $ Right s
+               Right (ar@(Json.Array _)) ->
+                      case fromArray ar of
+                        Json.String s:xs -> return $ Right s
+                        _ -> mismatch "Text" (show x)
+               _ -> mismatch "Text" (show x)
     }
     where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons
@@ -883,25 +893,24 @@ array = Json.Array . V.fromList
 object = Json.Object
 
 accArray xs [] wf = return $ Right ()
-accArray xs ar wf =
-       do let el = head ar
-          wf el
+accArray xs (el:ar) wf =
+       do wf el
           val' <- lift get
           let val = case val' of
-                      Json.Array ar -> V.toList ar
+                      Json.Array ar' -> V.toList ar'
                       p -> [p]
           let acc = xs ++ val
           lift $ put $ array (xs ++ val)
-          accArray acc (tail ar) wf
+          accArray acc ar wf
           return $ Right ()
 
 arConcat :: Json.Value -> Json.Value
 arConcat a@(Json.Array ar)
     = let vs = V.toList ar in
-      case length vs of
-        1 ->
+      case vs of
+        [x] ->
           case vs of
             [Json.Null] -> array []
-            _           -> head vs
+            _           -> x
         _ -> a
 arConcat o = o
