@@ -49,12 +49,12 @@ import Data.Typeable
 serializeSmart a = S.runPut $ smartPut sFormat a
 
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
-parseSmart = S.runGet (fromEitherM $ smartGet pFormat)
+parseSmart = S.runGet (smartGet pFormat)
 
 serializeUnvers a = S.runPut $ writeSmart sFormatUnvers a
 
 parseUnvers :: SmartCopy a => BS.ByteString -> Either String a
-parseUnvers = S.runGet (fromEitherM $ readSmart pFormatUnvers)
+parseUnvers = S.runGet (readSmart pFormatUnvers)
 
 -------------------------------------------------------------------------------
 -- Versioned serialization
@@ -128,23 +128,18 @@ pFormat
     , readField = id
     , readRepetition =
           do n <- S.get
-             res  <- getSmartGet pFormat >>= replicateM n
-             case lefts res of
-               [] ->
-                   return $ Right $ rights res
-               l:_ ->
-                   return $ Left l
-    , readInt = liftM Right S.get
-    , readChar = liftM Right S.get
-    , readBool = liftM (Right . toEnum . fromIntegral) S.getWord8
-    , readDouble = liftM Right S.get
+             getSmartGet pFormat >>= replicateM n
+    , readInt = S.get
+    , readChar = S.get
+    , readBool = liftM (toEnum . fromIntegral) S.getWord8
+    , readDouble = S.get
     , readString = readRepetition pFormat
     , readMaybe =
           do b <- S.get
-             if b then smartGet pFormat >>= either (return . Left) (return . Right . Just)
-                  else return $ Right Nothing
-    , readBS = liftM Right S.get
-    , readText = smartGet pFormat >>= either (return . Left) (return . Right . decodeUtf8)
+             if b then smartGet pFormat >>= (return . Just)
+                  else return Nothing
+    , readBS = S.get
+    , readText = smartGet pFormat >>= (return . decodeUtf8)
     }
 
 -------------------------------------------------------------------------------
@@ -170,15 +165,10 @@ pFormatUnvers
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , readRepetition =
           do n <- S.get
-             res  <- getSmartGet pFormatUnvers >>= replicateM n
-             case lefts res of
-               [] ->
-                   return $ Right $ rights res
-               l:_ ->
-                   return $ Left l
+             getSmartGet pFormatUnvers >>= replicateM n
     , readString = readRepetition pFormatUnvers
     , readMaybe =
           do b <- S.get
-             if b then liftM (fmap Just) $ readSmart pFormatUnvers
-                  else return $ Right Nothing
+             if b then liftM Just $ readSmart pFormatUnvers
+                  else return Nothing
     }

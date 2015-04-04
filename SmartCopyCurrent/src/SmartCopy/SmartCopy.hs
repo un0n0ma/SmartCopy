@@ -23,7 +23,6 @@ module SmartCopy.SmartCopy
        , smartPutWithVersion
        , constructGetterFromVersion
        , mismatch
-       , mismatchFail
        , noCons
        , conLookupErr
        , ConstrInfo (..)
@@ -89,13 +88,13 @@ class SmartCopy a where
         = do wrapped <- gwriteSmart fmt (from a) [] []
              putter <- wrapped
              putter (from a)
-    readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m (Either String a)
+    readSmart :: (Applicative m, Alternative m, Monad m) => ParseFormat m -> m a
     default readSmart :: (Generic a, GSmartCopy (Rep a), Monad m, Applicative m, Alternative m)
-                      => ParseFormat m -> m (Either String a)
+                      => ParseFormat m -> m a
     readSmart fmt
         = do wrapped <- greadSmart fmt [] []
              getter <- wrapped
-             fmap (fmap to) getter
+             fmap to getter
 
 class GSmartCopy t where
     gwriteSmart :: Monad m
@@ -108,7 +107,7 @@ class GSmartCopy t where
                => ParseFormat m
                -> [ConstrInfo]
                -> [(Maybe TypeRep, Int32)]
-               -> m (m (m (Either String (t x))))
+               -> m (m (m (t x)))
 -------------------------------------------------------------------------------
 -- Format records
 -------------------------------------------------------------------------------
@@ -133,19 +132,19 @@ data SerializationFormat m
 
 data ParseFormat m
     = ParseFormat
-    { mkGetter :: SmartCopy a => Bool -> Int32 -> m (m (Either String a))
+    { mkGetter :: SmartCopy a => Bool -> Int32 -> m (m a)
     --- Bool: save byte by not writing out version. Int32: Version of duplicate type.
-    , readCons :: forall a. [(ConstrInfo, m (Either String a))] -> m (Either String a)
-    , readField :: forall a. m (Either String a) -> m (Either String a)
-    , readRepetition :: SmartCopy a => m (Either String [a])
-    , readInt :: m (Either String Int)
-    , readChar :: m (Either String Char)
-    , readBool :: m (Either String Bool)
-    , readDouble :: m (Either String Double)
-    , readString :: m (Either String String)
-    , readMaybe :: SmartCopy a => m (Either String (Maybe a))
-    , readBS :: m (Either String BS.ByteString)
-    , readText :: m (Either String T.Text)
+    , readCons :: forall a. [(ConstrInfo, m a)] -> m a
+    , readField :: forall a. m a -> m a
+    , readRepetition :: SmartCopy a => m [a]
+    , readInt :: m Int
+    , readChar :: m Char
+    , readBool :: m Bool
+    , readDouble :: m Double
+    , readString :: m String
+    , readMaybe :: SmartCopy a => m (Maybe a)
+    , readBS :: m BS.ByteString
+    , readText :: m T.Text
     }
 
 
@@ -153,18 +152,14 @@ data ParseFormat m
 -- Errors
 -------------------------------------------------------------------------------
 
-mismatch :: Monad m => forall a. String -> String -> m (Either String a)
-mismatch exp act = return $ Left $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
+mismatch :: Monad m => forall a. String -> String -> m a
+mismatch exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
 
-mismatchFail :: Monad m => String -> String -> m ()
-mismatchFail exp act = fail $ "Was expecting " ++ exp ++ " at " ++ act ++ "."
+conLookupErr :: Monad m => forall a. String -> String -> m a
+conLookupErr exp list = fail $ concat [ "Didn't find constructor tag ", exp, " in list ", list ]
 
-
-conLookupErr :: Monad m => forall a. String -> String -> m (Either String a)
-conLookupErr exp list = return $ Left $ concat [ "Didn't find constructor tag "
-                                               , exp, " in list ", list ]
-noCons :: Monad m => forall a. m (Either String a)
-noCons = return $ Left "No constructor found during look-up."
+noCons :: Monad m => forall a. m a
+noCons = fail "No constructor found during look-up."
 
 vNotFound :: String -> String
 vNotFound s = "Cannot find getter associated with version " ++ s ++ "."
@@ -211,7 +206,7 @@ smartPut fmt a
 
 smartGet :: (SmartCopy a, Monad m, Applicative m, Alternative m)
          => ParseFormat m
-         -> m (Either String a)
+         -> m a
 smartGet fmt = join $ getSmartGet fmt
 
 -- Same as SmartCopy but dealing with arbitrary monads.
@@ -229,7 +224,7 @@ getSmartPut fmt =
 
 getSmartGet :: forall a m i. (SmartCopy a, Monad m, Applicative m, Alternative m)
            => ParseFormat m
-           -> m (m (Either String a))
+           -> m (m a)
 getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
@@ -355,7 +350,7 @@ constructGetterFromVersion :: forall a m i. (SmartCopy a, Monad m, Applicative m
                            => ParseFormat m
                            -> Version a
                            -> Kind a
-                           -> Either String (m (Either String a))
+                           -> Either String (m a)
 constructGetterFromVersion fmt diskV origK =
     worker fmt False diskV origK
     where
@@ -364,7 +359,7 @@ constructGetterFromVersion fmt diskV origK =
            -> Bool
            -> Version a
            -> Kind a
-           -> Either String (m (Either String a))
+           -> Either String (m a)
     worker fmt fwd thisV thisK
         | version == thisV = return $ readSmart fmt
         | otherwise =
@@ -373,16 +368,16 @@ constructGetterFromVersion fmt diskV origK =
             Base -> Left $ vNotFound (show thisV)
             Extends bProxy ->
                 do previousGetter <- worker fmt fwd (castVersion diskV) (kindFromProxy bProxy)
-                   return $ fmap (fmap migrate) previousGetter
+                   return $ fmap migrate previousGetter
             Extended{} | fwd -> Left $ vNotFound (show thisV)
             Extended aKind ->
                 do let revProxy :: Proxy (MigrateFrom (Reverse a))
                        revProxy = Proxy
-                       forwardGetter :: Either String (m (Either String a))
+                       forwardGetter :: Either String (m a)
                        forwardGetter
-                           = fmap (fmap (unReverse . migrate)) <$>
+                           = fmap (unReverse . migrate) <$>
                              worker fmt True (castVersion thisV) (kindFromProxy revProxy)
-                       previousGetter :: Either String (m (Either String a))
+                       previousGetter :: Either String (m a)
                        previousGetter = worker fmt fwd (castVersion thisV) aKind
                    case forwardGetter of
                      Left{} -> previousGetter

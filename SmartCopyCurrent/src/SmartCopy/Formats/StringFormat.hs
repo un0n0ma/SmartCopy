@@ -43,14 +43,14 @@ serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = snd $ runWriter m
 
 parseSmart :: SmartCopy a => String -> Fail a
-parseSmart = runParser (fromEitherM $ smartGet pFormat)
+parseSmart = runParser (smartGet pFormat)
     where runParser action = evalState (runFailT action)
 
 serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
     where runSerialization m = snd $ runWriter m
 
 parseUnvers :: SmartCopy a => String -> Fail a
-parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
+parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action = evalState (runFailT action)
 
 -------------------------------------------------------------------------------
@@ -102,8 +102,8 @@ pFormatUnvers
              let str = filter (/=' ') str'
              if startswith "Nothing" str
                 then do put $ snd $ delimit str
-                        return $ Right Nothing
-                else liftM (fmap Just) $ readSmart pFormatUnvers
+                        return Nothing
+                else liftM Just $ readSmart pFormatUnvers
     }
 
 -------------------------------------------------------------------------------
@@ -169,12 +169,11 @@ pFormat
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
                         case version of
-                          Right (Just v) ->
+                          Just v ->
                               case constructGetterFromVersion pFormat v kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
-                          Right Nothing -> return $ readSmart pFormat
-                          Left msg -> return $ return $ Left msg
+                          Nothing -> return $ readSmart pFormat
                  else either fail return $
                       constructGetterFromVersion pFormat (Version prevVer) kind
     , readCons =
@@ -218,7 +217,7 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return $ Right num
+                      return num
                [] -> mismatch "Int" prim
     , readChar =
           do str <- get
@@ -228,7 +227,7 @@ pFormat
                    mismatch "Char" prim
                h:t ->
                    do put t
-                      return $ Right h
+                      return h
     , readBool =
           do str <- get
              let prim = filter (/=' ') str
@@ -239,36 +238,36 @@ pFormat
              case reads prim of
                [(num, xs)] ->
                    do put xs
-                      return $ Right num
+                      return num
                [] -> mismatch "Double" prim
     , readString =
           do str <- get
              let (prim, rest) = delimit $ filter (/=' ') str
              put rest
-             return $ Right prim
+             return prim
     , readMaybe =
           do str' <- get
              let str = filter (/=' ') str'
              if startswith "Nothing" str
                 then do put $ snd $ delimit str
-                        return $ Right Nothing
-                else liftM (fmap Just) $ smartGet pFormat
+                        return Nothing
+                else liftM Just $ smartGet pFormat
     , readBS =
          do str <- get
             let (prim, rest) = delimit $ filter (/=' ') str
             put rest
-            return $ Right $ BSC.pack prim
+            return $ BSC.pack prim
     , readText =
          do str <- get
             let (prim, rest) = delimit $ filter (/=' ') str
             put rest
-            return $ Right $ T.pack prim
+            return $ T.pack prim
     }
     where readBool' prim
               | startswith "True" prim =
-                do put $ drop 4 prim; return $ Right True
+                do put $ drop 4 prim; return True
               | startswith "False" prim =
-                do put $ drop 5 prim; return $ Right False
+                do put $ drop 5 prim; return False
               | otherwise =
                 mismatch "Bool" prim
           readVersion =
@@ -281,9 +280,9 @@ pFormat
                           [(int, ')':afterVer)] ->
                               do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
                                  put withoutVer
-                                 return $ Right $ Just $ Version int
+                                 return $ Just $ Version int
                           _ -> mismatch "int32" after
-                   _ -> return $ Right Nothing
+                   _ -> return Nothing
 
 
 -------------------------------------------------------------------------------
@@ -329,15 +328,15 @@ readClose =
 
 mapWithDelim mb list acc
     | null list
-    = return $ Right []
+    = return []
     | otherwise
     = do let (listelem, listrest) = L.span (/= ',') list
          case T.unpack $ T.strip $ T.pack listrest of
            ',':xs -> do put listelem
                         parseElem <- mb
-                        either (return . Left) (\el -> mapWithDelim mb xs (acc ++ [el])) parseElem
+                        mapWithDelim mb xs (acc ++ [parseElem])
            _ -> do put listelem
                    parseElem <- mb
-                   either (return . Left) (\el -> return $ Right $ acc ++ [el]) parseElem
+                   return $ acc ++ [parseElem]
 
 delimit = L.span (/=')')

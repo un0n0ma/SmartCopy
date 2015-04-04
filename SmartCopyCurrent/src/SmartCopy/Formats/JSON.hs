@@ -75,17 +75,17 @@ serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseSmart :: SmartCopy a => Json.Value -> Fail a
-parseSmart = runParser (fromEitherM $ smartGet pFormat)
+parseSmart = runParser (smartGet pFormat)
     where runParser action value =
-              evalState (evalStateT (runReaderT (runFailT action) (Right value)) value) []
+              evalState (evalStateT (runReaderT (runFailT action) value) value) []
 
 serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
 parseUnvers :: SmartCopy a => Json.Value -> Fail a
-parseUnvers = runParser (fromEitherM $ readSmart pFormatUnvers)
+parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action value =
-              evalState (runReaderT (runFailT action) (Right value)) []
+              evalState (runReaderT (runFailT action) value) []
 
 serializeWith a version = runSerialization (smartPutWithVersion sFormat a version)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
@@ -200,7 +200,7 @@ sFormat
 
 type CurrentFields = State [(Int, Maybe String)]
 
-pFormat :: ParseFormat (FailT (ReaderT (Either String Json.Value) (StateT Json.Value CurrentFields)))
+pFormat :: ParseFormat (FailT (ReaderT Json.Value (StateT Json.Value CurrentFields)))
 pFormat
     = ParseFormat
     { mkGetter =
@@ -211,8 +211,8 @@ pFormat
                    Just v ->
                        case constructGetterFromVersion pFormat v kind of
                          Right getter ->
-                             local (const $ Right rest) getter 
-                         Left msg -> return $ Left msg
+                             local (const rest) getter 
+                         Left msg -> fail msg
                    Nothing -> readSmart pFormat
     , readCons =
           \cons ->
@@ -225,32 +225,30 @@ pFormat
                        noCons
                    [(x, parser)] ->
                        case val of
-                         Right obj@(Json.Object _) ->
+                         obj@(Json.Object _) ->
                              do _ <- putFieldsFromObj cn cons
                                 lift $ put obj
-                                local (const $ Right obj) parser
-                         Right ar@(Json.Array _) ->
+                                local (const obj) parser
+                         ar@(Json.Array _) ->
                              do _ <- putFieldsFromArr ar
                                 lift $ put ar
-                                local (const $ Right ar) parser
-                         Right otherPrim ->
+                                local (const ar) parser
+                         otherPrim ->
                              case cfields x of
                                Empty ->
                                    do lift $ put otherPrim
-                                      local (const $ Right otherPrim) parser
+                                      local (const otherPrim) parser
                                NF 0 ->
                                    do lift $ put otherPrim
-                                      local (const $ Right otherPrim) parser
+                                      local (const otherPrim) parser
                                NF 1 ->
                                    do lift $ put otherPrim
-                                      local (const $ Right otherPrim) parser
+                                      local (const otherPrim) parser
                                _      ->
                                    mismatch "single-field constructor" (show otherPrim)
-                         Left msg ->
-                             return $ Left msg
                    _ ->
                       case val of
-                        Right (Json.Object obj) ->
+                        Json.Object obj ->
                             if M.member (T.pack "tag") obj
                                then
                                    do let Just (Json.String con) = M.lookup (T.pack "tag") obj
@@ -260,7 +258,7 @@ pFormat
                                               Just parser ->
                                                   do putFieldsFromObj con cons
                                                      lift $ put args
-                                                     local (const $ Right args) parser
+                                                     local (const args) parser
                                               Nothing ->
                                                   conLookupErr (T.unpack con) (show conNames)
                                         Nothing ->
@@ -269,31 +267,31 @@ pFormat
                                                  Just parser ->
                                                      do _ <- putFieldsFromObj con cons
                                                         lift $ put $ object args
-                                                        local (const $ Right $ object args) parser
+                                                        local (const $ object args) parser
                                                  Nothing ->
                                                      conLookupErr (T.unpack con) (show conNames)
                                else mismatch "tagged type" (show obj)
-                        Right ar@(Json.Array _) ->
+                        ar@(Json.Array _) ->
                             case fromArray ar of
                               o@(Json.Object _):xs ->
                                     do lift $ put o
-                                       res <- local (const $ Right o) (readCons pFormat cons)
+                                       res <- local (const o) (readCons pFormat cons)
                                        lift $ put $ array xs
                                        return res
                               nameOrField@(Json.String tag):xs ->
                                   case lookup tag (zip conNames parsers) of
                                     Just parser ->
                                         do lift $ put nameOrField
-                                           res <- local (const $ Right nameOrField) parser
+                                           res <- local (const nameOrField) parser
                                            lift $ put $ array xs
                                            return res
                                     Nothing ->
                                         conLookupErr (show tag) (show conNames)
                               f -> mismatch "tagged type" (show f)
-                        Right tag@(Json.String s) ->
+                        tag@(Json.String s) ->
                             case lookup s (zip conNames parsers) of
                               Just parser ->
-                                  local (const $ Right tag) parser
+                                  local (const tag) parser
                               Nothing ->
                                   conLookupErr (show tag) (show conNames)
                         _ ->
@@ -306,18 +304,17 @@ pFormat
                    (h, Nothing):t ->
                        do v <- ask
                           case v of
-                            Right ar@(Json.Array a) ->
+                            ar@(Json.Array a) ->
                                  do res <-
-                                        local (const $ Right $ array $ drop h $ fromArray ar) ma
+                                        local (const $ array $ drop h $ fromArray ar) ma
                                     lift $ lift $ lift $ put t
                                     return res
-                            Right n ->
-                                 do res <- local (const $ Right n) ma
+                            n ->
+                                 do res <- local (const n) ma
                                     lift $ lift $ lift $ put t
                                     return res
-                            Left msg -> return $ Left msg   
                    (h, Just lab):t ->
-                       do Right (Json.Object obj) <- ask
+                       do Json.Object obj <- ask
                           let index = T.pack $ show h
                           let label = T.pack lab
                               labField = M.lookup index obj
@@ -325,7 +322,7 @@ pFormat
                             Just (Json.Object obj') ->
                                 case M.toList obj' of
                                   [(label, val)] ->
-                                      do res <- local (const $ Right val) ma
+                                      do res <- local (const val) ma
                                          lift $ lift $ lift $ put t
                                          return res
                                   f ->
@@ -335,54 +332,44 @@ pFormat
     , readRepetition =
           do val <- ask
              case val of
-               Right (Json.Array ar) ->
+               Json.Array ar ->
                    case V.toList ar of
                      ar1@(Json.Array _):_ ->
                          do lift $ put ar1
-                            local (const $ Right ar1) $
-                                do res <-
-                                       getSmartGet pFormat >>= replicateM (length $ fromArray ar1)
-                                   if null (lefts res)
-                                      then return $ Right $ rights res
-                                      else return $ Left []
+                            local (const ar1) $
+                                do getSmartGet pFormat >>= replicateM (length $ fromArray ar1)
                      _ ->
-                         do res <-
-                                forM (V.toList ar) $
-                                     \el -> local (const $ Right el) (readSmart pFormat)
-                            if null (lefts res)
-                               then return $ Right $ rights res
-                               else return $ Left []
-                              
+                         forM (V.toList ar) $ \el -> local (const el) (readSmart pFormat)
                _ -> mismatch "Array" (show val)
     , readInt =
           do x <- ask
              case x of
-               Right (Json.Number n) ->
-                    return $ Right $ floor n
-               Right ar@(Json.Array _) ->
+               Json.Number n ->
+                    return $ floor n
+               ar@(Json.Array _) ->
                       case fromArray ar of
                         Json.Number n:xs ->
-                            return $ Right $ floor n
+                            return $ floor n
                         _ ->
                             mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readChar =
           do x <- ask
              case x of
-               Right (Json.String s) ->
+               Json.String s ->
                    let str = T.unpack s in
                    case str of
                      [x] ->
-                         return $ Right x
+                         return x
                      _ ->
                          mismatch "Char" str
-               Right ar@(Json.Array _) ->
+               ar@(Json.Array _) ->
                    case fromArray ar of
                      Json.String s:xs ->
                          let str = T.unpack s in
                          case str of
                            [x] ->
-                               return $ Right x
+                               return x
                            _ ->
                                mismatch "Char" (T.unpack s)
                      _ -> mismatch "Char" (show x)
@@ -390,71 +377,60 @@ pFormat
     , readBool =
           do x <- ask
              case x of
-               Right (Json.Bool b) -> return $ Right b
-               Right ar@(Json.Array _) ->
+               Json.Bool b -> return b
+               ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Bool b:xs -> return $ Right b
+                        Json.Bool b:xs -> return b
                         _ -> mismatch "Bool" (show x)
                _ -> mismatch "Bool" (show x)
     , readDouble =
           do x <- ask
              case x of
-               Right (Json.Number d) -> return $ Right $ realToFrac d
-               Right ar@(Json.Array _) ->
+               Json.Number d -> return $ realToFrac d
+               ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Number d:xs -> return $ Right $ realToFrac d
+                        Json.Number d:xs -> return $ realToFrac d
                         _ -> mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readString =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right $ T.unpack s
-               Right ar@(Json.Array _) ->
+               Json.String s -> return $ T.unpack s
+               ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs -> return $ Right $ T.unpack s
+                     Json.String s:xs -> return $ T.unpack s
                      _ -> mismatch "String" (show x)
                _ -> mismatch "String" (show x)
     , readMaybe =
           do x <- ask
              case x of
-               Right Json.Null -> return $ Right Nothing
-               Right ar@(Json.Array _) ->
+               Json.Null -> return Nothing
+               ar@(Json.Array _) ->
                   case fromArray ar of
-                    Json.Null:xs -> return $ Right Nothing
+                    Json.Null:xs -> return Nothing
                     xs ->
                         do lift $ put ar
-                           res <- smartGet pFormat
-                           case res of
-                             Right a ->
-                                 return $ Right $ Just a
-                             Left msg ->
-                                 return $ Left msg
-               Right val ->
+                           liftM Just $ smartGet pFormat
+               val ->
                    do lift $ put val
-                      res <- smartGet pFormat
-                      case res of
-                        Right a ->
-                            return $ Right $ Just a
-                        Left msg ->
-                            return $ Left msg
-               Left msg -> return $ Left msg                              
+                      liftM Just $ smartGet pFormat
     , readBS =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
-               Right ar@(Json.Array _) ->
-                      case fromArray ar of
-                        Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
-                        _ -> mismatch "ByteString" (show x)
+               Json.String s -> return $ TE.encodeUtf8 s
+               ar@(Json.Array _) ->
+                case fromArray ar of
+                  Json.String s:xs -> return $ TE.encodeUtf8 s
+                  _ -> mismatch "ByteString" (show x)
                _ -> mismatch "ByteString" (show x)
     , readText =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right s
-               Right ar@(Json.Array _) ->
-                      case fromArray ar of
-                        Json.String s:xs -> return $ Right s
-                        _ -> mismatch "Text" (show x)
+               Json.String s -> return s
+               ar@(Json.Array _) ->
+                case fromArray ar of
+                  Json.String s:xs -> return s
+                  _ -> mismatch "Text" (show x)
                _ -> mismatch "Text" (show x)
     }
     where withoutVersion o@(Json.Object obj)
@@ -641,7 +617,7 @@ sFormatUnvers
 --  Unversioned parsing
 -------------------------------------------------------------------------------
 
-pFormatUnvers :: ParseFormat (FailT (ReaderT (Either String Json.Value) (State [String])))
+pFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
 pFormatUnvers
     = ParseFormat
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
@@ -654,26 +630,25 @@ pFormatUnvers
                case cons of
                  [] -> noCons
                  [(h, parser)] -> case val of
-                        Right (obj@(Json.Object _)) ->
+                        obj@(Json.Object _) ->
                             do _ <- putFieldsFromObj cn cons
-                               local (const $ Right obj) parser
-                        Right (ar@(Json.Array _)) ->
+                               local (const obj) parser
+                        ar@(Json.Array _) ->
                             do _ <- putFieldsFromArr ar
-                               local (const $ Right ar) parser
-                        Right otherPrim ->
+                               local (const ar) parser
+                        otherPrim ->
                             case cfields h of
                               Empty ->
-                                  local (const $ Right otherPrim) parser
+                                  local (const otherPrim) parser
                               NF 0 ->
-                                  local (const $ Right otherPrim) parser
+                                  local (const otherPrim) parser
                               NF 1 ->
-                                  local (const $ Right otherPrim) parser
+                                  local (const otherPrim) parser
                               _      ->
                                   mismatch "single-field constructor" (show otherPrim)
-                        Left msg -> return $ Left msg
                  _ ->
                     case val of
-                      Right (Json.Object obj) ->
+                      Json.Object obj ->
                           if M.member (T.pack "tag") obj
                              then
                                  do let Just (Json.String con) = M.lookup (T.pack "tag") obj
@@ -682,7 +657,7 @@ pFormatUnvers
                                           case lookup con (zip conNames parsers) of
                                             Just parser ->
                                                 do putFieldsFromObj con cons
-                                                   local (const $ Right args) parser
+                                                   local (const args) parser
                                             Nothing ->
                                                 conLookupErr (T.unpack con) (show conNames)
                                       Nothing ->
@@ -690,29 +665,27 @@ pFormatUnvers
                                              case lookup con (zip conNames parsers) of
                                                Just parser ->
                                                    do _ <- putFieldsFromObj con cons
-                                                      local (const $ Right $ object args) parser
+                                                      local (const $ object args) parser
                                                Nothing ->
                                                 conLookupErr (T.unpack con) (show conNames)
                              else mismatch "tagged type" (show obj)
-                      Right ar@(Json.Array _) ->
+                      ar@(Json.Array _) ->
                           case fromArray ar of
                             o@(Json.Object _):_ ->
-                                local (const $ Right o) (readCons pFormatUnvers cons)
+                                local (const o) (readCons pFormatUnvers cons)
                             nameOrField@(Json.String tag):_ ->
                                 case lookup tag (zip conNames parsers) of
                                   Just parser ->
-                                      local (const $ Right nameOrField) parser
+                                      local (const nameOrField) parser
                                   Nothing ->
                                       conLookupErr (show tag) (show conNames)
                             f -> mismatch "tagged type" (show f)
-                      Right tag@(Json.String s) ->
+                      tag@(Json.String s) ->
                           case lookup s (zip conNames parsers) of
                             Just parser ->
-                                local (const $ Right tag) parser
+                                local (const tag) parser
                             Nothing ->
                                 conLookupErr (show tag) (show conNames)
-                      Left msg ->
-                          mismatch "tagged type" msg
     , readField =                      
           \ma ->
               do fields <- lift $ lift get
@@ -723,23 +696,22 @@ pFormatUnvers
                          [(num, "")] ->
                              do v <- ask
                                 case v of
-                                  Right ar@(Json.Array a)  ->
+                                  ar@(Json.Array a)  ->
                                       do res <-
-                                           local (const $ Right $ array $ drop num $ fromArray ar) ma
+                                           local (const $ array $ drop num $ fromArray ar) ma
                                          put t
                                          return res
-                                  Right n ->
-                                      do res <- local (const $ Right n) ma
+                                  n ->
+                                      do res <- local (const n) ma
                                          put t
                                          return res
-                                  Left msg -> return $ Left msg
                                           
                          [] ->
-                             do Right o@(Json.Object _) <- ask
+                             do o@(Json.Object _) <- ask
                                 let field = T.pack h
                                 case lookup field $ fromObject o of
                                   Just test ->
-                                      do res <- local (const $ Right test) ma
+                                      do res <- local (const test) ma
                                          put t
                                          return res
                                   Nothing ->
@@ -747,102 +719,93 @@ pFormatUnvers
     , readRepetition =
           do val <- ask
              case val of
-               Right (Json.Array ar) ->
+               Json.Array ar ->
                    case V.toList ar of
                      ar1@(Json.Array _):_ ->
-                         local (const $ Right ar1) (readRepetition pFormatUnvers)
+                         local (const ar1) (readRepetition pFormatUnvers)
                      _ ->
-                         do res <-
-                                forM (V.toList ar)
-                                     (\el -> local (const $ Right el) $ readSmart pFormatUnvers)
-                            if null (lefts res)
-                               then return $ Right $ rights res
-                               else return $ Left []
+                         forM (V.toList ar) (\el -> local (const el) $ readSmart pFormatUnvers)
                _ -> mismatch "Array" (show val)
     , readInt =
           do x <- ask
              case x of
-               Right (Json.Number n) ->
-                    return $ Right $ floor n
-               Right ar@(Json.Array _) ->
+               Json.Number n ->
+                    return $ floor n
+               ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Number n:xs -> return $ Right $ floor n
+                        Json.Number n:xs -> return $ floor n
                         _ -> mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readChar =
           do x <- ask
              case x of
-               Right (Json.String s) ->
+               Json.String s ->
                    let str = T.unpack s in
                    case str of
-                     [c] -> return $ Right c
+                     [c] -> return c
                      _ -> mismatch "Char" str
-               Right ar@(Json.Array _) ->
+               ar@(Json.Array _) ->
                    case fromArray ar of
                      Json.String s:xs ->
                          let str = T.unpack s in
                          case str of
-                           [c] -> return $ Right c
+                           [c] -> return c
                            _ -> mismatch "Char" (T.unpack s)
                      _ -> mismatch "Char" (show x)
                _ -> mismatch "Char" (show x)
     , readBool =
           do x <- ask
              case x of
-               Right (Json.Bool b) -> return $ Right b
-               Right ar@(Json.Array _) ->
-                      case fromArray ar of
-                        Json.Bool b:xs -> return $ Right b
-                        _ -> mismatch "Bool" (show x)
+               (Json.Bool b) -> return b
+               ar@(Json.Array _) ->
+                case fromArray ar of
+                  Json.Bool b:xs -> return b
+                  _ -> mismatch "Bool" (show x)
                _ -> mismatch "Bool" (show x)
     , readDouble =
           do x <- ask
              case x of
-               Right (Json.Number d) -> return $ Right $ realToFrac d
-               Right ar@(Json.Array _) ->
-                      case fromArray ar of
-                        Json.Number d:xs -> return $ Right $ realToFrac d
-                        _ -> mismatch "Number" (show x)
+               (Json.Number d) -> return $ realToFrac d
+               ar@(Json.Array _) ->
+                case fromArray ar of
+                  Json.Number d:xs -> return $ realToFrac d
+                  _ -> mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readString =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right $ T.unpack s
-               Right ar@(Json.Array _) ->
-                      case fromArray ar of
-                        Json.String s:xs -> return $ Right $ T.unpack s
-                        _ -> mismatch "String" (show x)
+               (Json.String s) -> return $ T.unpack s
+               ar@(Json.Array _) ->
+                case fromArray ar of
+                  Json.String s:xs -> return$ T.unpack s
+                  _ -> mismatch "String" (show x)
                _ -> mismatch "String" (show x)
     , readMaybe =
           do x <- ask
              case x of
-               Right Json.Null -> return $ Right Nothing
-               Right ar@(Json.Array _) ->
+               Json.Null -> return Nothing
+               ar@(Json.Array _) ->
                   case fromArray ar of
-                    Json.Null:xs -> return $ Right Nothing
-                    xs ->
-                        do res <- readSmart pFormatUnvers
-                           either (return . Left) (return . Right . Just) res
-               xs ->
-                   do res <- readSmart pFormatUnvers
-                      either (return . Left) (return . Right . Just) res
+                    Json.Null:xs -> return Nothing
+                    xs -> liftM Just $ readSmart pFormatUnvers
+               xs -> liftM Just $ readSmart pFormatUnvers
     , readBS =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right $ TE.encodeUtf8 s
-               Right (ar@(Json.Array _)) ->
-                      case fromArray ar of
-                        Json.String s:xs -> return $ Right $ TE.encodeUtf8 s
-                        _ -> mismatch "ByteString" (show x)
+               Json.String s -> return $ TE.encodeUtf8 s
+               ar@(Json.Array _) ->
+                   case fromArray ar of
+                     Json.String s:xs -> return $ TE.encodeUtf8 s
+                     _ -> mismatch "ByteString" (show x)
                _ -> mismatch "ByteString" (show x)
     , readText =
           do x <- ask
              case x of
-               Right (Json.String s) -> return $ Right s
-               Right (ar@(Json.Array _)) ->
-                      case fromArray ar of
-                        Json.String s:xs -> return $ Right s
-                        _ -> mismatch "Text" (show x)
+               Json.String s -> return s
+               ar@(Json.Array _) ->
+                   case fromArray ar of
+                     Json.String s:xs -> return s
+                     _ -> mismatch "Text" (show x)
                _ -> mismatch "Text" (show x)
     }
     where putFieldsFromObj con cons = 
@@ -874,7 +837,7 @@ fromArray val = [val]
 array = Json.Array . V.fromList
 object = Json.Object
 
-accArray xs [] wf = return $ Right ()
+accArray xs [] wf = return ()
 accArray xs (el:ar) wf =
        do wf el
           val' <- lift get
@@ -884,7 +847,7 @@ accArray xs (el:ar) wf =
           let acc = xs ++ val
           lift $ put $ array (xs ++ val)
           accArray acc ar wf
-          return $ Right ()
+          return ()
 
 arConcat :: Json.Value -> Json.Value
 arConcat a@(Json.Array ar)

@@ -44,7 +44,7 @@ import Generics.Deriving.ConNames
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
     gwriteSmart fmt _ _ _ = return $ return (\U1 -> return ())
-    greadSmart fmt _ _ = return $ return $ return $ Right U1
+    greadSmart fmt _ _ = return $ return $ return U1
 
 instance
     (GVersion f, Datatype d, GParserList f, GSelectors f, GSmartCopy f, GConList f)
@@ -55,7 +55,7 @@ instance
         = return $ return $
             do conList <- mkGConList (P.Proxy :: P.Proxy f) 0
                let conMap = mkGParserList fmt (undefined :: f x)
-               liftM (fmap M1) $ readCons fmt $ zip conList conMap
+               liftM M1 $ readCons fmt $ zip conList conMap
 
 instance
     (GVersion f, GConList f, Constructor c, GSelectors f, GSmartCopy f)
@@ -87,7 +87,7 @@ instance
         = liftM (liftM (\g (M1 a) -> withField fmt $ g a)) $
             gwriteSmart fmt a [] tyVer
     greadSmart fmt _ tyVer
-        = liftM (liftM (readField fmt . liftM (fmap M1))) $ greadSmart fmt [] tyVer
+        = liftM (liftM (readField fmt . liftM M1)) $ greadSmart fmt [] tyVer
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
     gwriteSmart fmt (K1 a) _ tyVer
@@ -100,13 +100,13 @@ instance SmartCopy c => GSmartCopy (K1 a c) where
                          unVersion (version :: Version c)
             xs ->
                 return $ return $ return $
-                mismatchFail "singleton list with TypeRep of a field value" (show xs)
+                mismatch "singleton list with TypeRep of a field value" (show xs)
     greadSmart fmt _ tyVer
         = case tyVer of
             [(Nothing, v)] ->
-                 return $ liftM (liftM (fmap K1)) $ mkGetter fmt False v
+                 return $ liftM (liftM K1) $ mkGetter fmt False v
             [(Just _, v)] ->
-                return $ liftM (liftM (fmap K1)) $ mkGetter fmt True v
+                return $ liftM (liftM K1) $ mkGetter fmt True v
             xs ->
                 fail "Was expecting singleton list with TypeRep of a field value at " (show xs)
 
@@ -142,11 +142,11 @@ instance
                    (gwriteSmart fmt a [] [x])
                    (gwriteSmart fmt b []  xs)
             f -> return $ return $ return $
-                 mismatchFail "list with TypeReps of field values at " (show f)
+                 mismatch "list with TypeReps of field values at " (show f)
     greadSmart fmt conList tyVer
         = case tyVer of
             (x:xs) ->
-                liftM2 (liftM2 (liftM2 (liftM2 (:*:))))
+                liftM2 (liftM2 (liftM2 (:*:)))
                   (greadSmart fmt [] [x])
                   (greadSmart fmt [] xs)
             f ->
@@ -330,7 +330,7 @@ dupRepsToNothing' ((x,v):xs) ls
 -------------------------------------------------------------------------------
 class GParserList f where
     mkGParserList :: (Applicative m, Monad m, Alternative m, GSelectors f)
-                   => ParseFormat m -> f a -> [m (Either String (f a))]
+                   => ParseFormat m -> f a -> [m (f a)]
 
 instance
     (Constructor c, GSmartCopy f, GSelectors f, GSelectors g, GParserList g, GVersion f, GVersion g)
@@ -341,8 +341,8 @@ instance
                   [] -> []
                   tyVer':_ -> dupRepsToNothing tyVer'
         in
-        liftM (fmap (L1 . M1)) (join $ join $ greadSmart fmt [] tyVer)
-        : map (liftM (fmap R1)) (mkGParserList fmt (undefined :: g x))
+        liftM (L1 . M1) (join $ join $ greadSmart fmt [] tyVer)
+        : map (liftM R1) (mkGParserList fmt (undefined :: g x))
 
 instance
     (Constructor c, GConList f, GSmartCopy f, GSelectors f, GVersion f)
@@ -351,4 +351,4 @@ instance
         let [tyVer'] = gversions (P.Proxy :: P.Proxy (M1 C c f))
             tyVer = dupRepsToNothing tyVer'
         in
-        [liftM (fmap M1) (join $ join $ greadSmart fmt [] tyVer)]
+        [liftM M1 (join $ join $ greadSmart fmt [] tyVer)]

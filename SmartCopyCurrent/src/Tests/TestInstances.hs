@@ -178,10 +178,10 @@ instance SmartCopy MaybeTestX where
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
                               get3 <- getSmartGet fmt
-                              l1 <- readField fmt get1 >>= either fail return
-                              b <- readField fmt get2 >>= either fail return
-                              l2 <- readField fmt get3 >>= either fail return
-                              return $ Right $ MaybeTestX l1 b l2
+                              l1 <- readField fmt get1
+                              b <- readField fmt get2
+                              l2 <- readField fmt get3
+                              return $ MaybeTestX l1 b l2
     writeSmart fmt (MaybeTestX l1 b l2) =
         withCons fmt (CInfo "MaybeTestX" (NF 3) False 0) withFields
         where withFields = do put1 <- getSmartPut fmt
@@ -197,9 +197,9 @@ instance SmartCopy MaybeTest where
         readCons fmt [(CInfo "MaybeTest" (NF 2) False 0 , readFields)]
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
-                              i <- readField fmt get1 >>= either fail return
-                              m <- readField fmt get2 >>= either fail return
-                              return $ Right $ MaybeTest i m
+                              i <- readField fmt get1
+                              m <- readField fmt get2
+                              return $ MaybeTest i m
     writeSmart fmt (MaybeTest i m) =
         withCons fmt (CInfo "MaybeTest" (NF 2) False 0) withFields
         where withFields = do put1 <- getSmartPut fmt
@@ -213,8 +213,8 @@ instance SmartCopy BoolTest where
     readSmart fmt =
         readCons fmt [(CInfo "BoolTest" (NF 1) False 0 , readBool)]
         where readBool = do getter <- getSmartGet fmt
-                            b :: Bool <- readField fmt getter >>= either fail return
-                            return $ Right $ BoolTest b
+                            b :: Bool <- readField fmt getter
+                            return $ BoolTest b
     writeSmart fmt x@(BoolTest b) =
            withCons fmt (CInfo "BoolTest" (NF 1) False 0) putB
            where putB = do putter <- getSmartPut fmt
@@ -228,10 +228,10 @@ instance SmartCopy BoolTestLong where
         where readBT = do get1 <- getSmartGet fmt
                           get2 <- getSmartGet fmt
                           get3 <- getSmartGet fmt
-                          blist <- readField fmt get1 >>= either fail return
-                          b <- readField fmt get2 >>= either fail return
-                          slist <- readField fmt get3 >>= either fail return
-                          return $ Right $ BoolTestLong blist b slist
+                          blist <- readField fmt get1
+                          b <- readField fmt get2
+                          slist <- readField fmt get3
+                          return $ BoolTestLong blist b slist
     writeSmart fmt x@(BoolTestLong blist b slist) =
         withCons fmt (CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0) $
             do put1 <- getSmartPut fmt
@@ -247,8 +247,8 @@ instance SmartCopy StringTest where
     readSmart fmt =
         readCons fmt [(CInfo "StringTest" (NF 1) False 0 , readString)]
         where readString = do getter <- getSmartGet fmt
-                              s :: String <- readField fmt getter >>= either fail return
-                              return $ Right $ StringTest s
+                              s :: String <- readField fmt getter
+                              return $ StringTest s
     writeSmart fmt x@(StringTest s) =
         withCons fmt (CInfo "StringTest" (NF 1) False 0) putStr
         where putStr = do putter <- getSmartPut fmt
@@ -260,9 +260,9 @@ instance SmartCopy StringTest2 where
         readCons fmt [(CInfo "StringTest2" (NF 2) False 0 , readFields)]
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
-                              s :: String <- readField fmt get1 >>= either fail return
-                              ints <- readField fmt get2 >>= either fail return
-                              return $ Right $ StringTest2 s ints
+                              s :: String <- readField fmt get1
+                              ints <- readField fmt get2
+                              return $ StringTest2 s ints
     writeSmart fmt x@(StringTest2 s ints) =
         withCons fmt (CInfo "StringTest2" (NF 2) False 0) writeFields
         where writeFields = do put1 <- getSmartPut fmt
@@ -277,8 +277,8 @@ instance SmartCopy ArrType where
     readSmart fmt =
         readCons fmt [(CInfo "ArrType" (NF 1) False 0 , readInts)]
         where readInts = do getter <- getSmartGet fmt
-                            ints <- readField fmt getter >>= either fail return
-                            return $ Right $ ArrType ints
+                            ints <- readField fmt getter
+                            return $ ArrType ints
 
     writeSmart fmt x@(ArrType ints) =
         withCons fmt (CInfo "ArrType" (NF 1) False 0) writePrimList
@@ -291,8 +291,8 @@ instance SmartCopy ArrTypeBar where
     readSmart fmt =
         readCons fmt [(CInfo "ArrTypeBar" (NF 1) False 0 , readBars)]
         where readBars = do getter <- getSmartGet fmt
-                            bars <- readField fmt getter >>= either fail return
-                            return $ Right $ ArrTypeBar bars
+                            bars <- readField fmt getter
+                            return $ ArrTypeBar bars
 
     writeSmart fmt x@(ArrTypeBar bars) =
         withCons fmt (CInfo "ArrTypeBar" (NF 1) False 0) writeBarList
@@ -305,8 +305,8 @@ instance SmartCopy ArrTypeFooBar where
     readSmart fmt =
         readCons fmt [(CInfo "ArrTypeFooBar" (NF 1) False 0 , readFbars)]
         where readFbars = do getter <- getSmartGet fmt
-                             fbars <- readField fmt getter >>= either fail return
-                             return $ Right $ ArrTypeFooBar fbars
+                             fbars <- readField fmt getter
+                             return $ ArrTypeFooBar fbars
     writeSmart fmt x@(ArrTypeFooBar fbars) =
         withCons fmt (CInfo "ArrTypeFooBar" (NF 1) False 0) writeFBList
         where writeFBList = do putter <- getSmartPut fmt
@@ -320,9 +320,9 @@ instance SmartCopy Foo where
       where readFoo =
                  do get1 <- getSmartGet fmt
                     get2 <- getSmartGet fmt
-                    int <- readField fmt get1 >>= either fail return
-                    bar <- readField fmt get2 >>= either fail return
-                    return $ Right $ Foo int bar
+                    int <- readField fmt get1
+                    bar <- readField fmt get2
+                    return $ Foo int bar
 
     writeSmart fmt x@(Foo i bar) =
         withCons fmt (CInfo "Foo" (NF 2) False 0) writeFields
@@ -341,15 +341,15 @@ instance SmartCopy FooBar where
         readFoo0 =
                do get1 <- getSmartGet fmt
                   get2 <- getSmartGet fmt
-                  myBool <- readField fmt get1 >>= either fail return
-                  myDouble <- readField fmt get2 >>= either fail return
-                  return $ Right $ Foo0 myBool myDouble
+                  myBool <- readField fmt get1
+                  myDouble <- readField fmt get2
+                  return $ Foo0 myBool myDouble
         readFoo1 = 
                do get1 <- getSmartGet fmt
                   get2 <- getSmartGet fmt
-                  val <- readField fmt get1 >>= either fail return
-                  foobar <- readField fmt get2 >>= either fail return
-                  return $ Right $ Bar0 val foobar
+                  val <- readField fmt get1
+                  foobar <- readField fmt get2
+                  return $ Bar0 val foobar
 
     writeSmart fmt x@(Foo0 bool double) =
         withCons fmt (CInfo "Foo0" (NF 2) True 0) writeFields
@@ -372,8 +372,8 @@ instance SmartCopy MyDouble where
     readSmart fmt =
         readCons fmt [(CInfo "MyDouble" (NF 1) False 0 , readMyDouble)]
         where readMyDouble = do getter <- getSmartGet fmt
-                                d <- readField fmt getter >>= either fail return
-                                return $ Right $ MyDouble d
+                                d <- readField fmt getter
+                                return $ MyDouble d
     writeSmart fmt x@(MyDouble d) =
         withCons fmt (CInfo "MyDouble" (NF 1) False 0) writeD
         where writeD = do putter <- getSmartPut fmt
@@ -383,8 +383,8 @@ instance SmartCopy MyBool where
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "MyTrue" Empty True 1 , return $ Right MyTrue)
-                     ,(CInfo "MyFalse" Empty True 0 , return $ Right MyFalse)]
+        readCons fmt [(CInfo "MyTrue" Empty True 1 , return MyTrue)
+                     ,(CInfo "MyFalse" Empty True 0 , return MyFalse)]
     writeSmart fmt MyTrue =
         withCons fmt (CInfo "MyTrue" Empty True 1) $ return ()
     writeSmart fmt MyFalse =
@@ -398,8 +398,8 @@ instance SmartCopy Easy where
         where
           readEasy =
               do getter <- getSmartGet fmt
-                 f <- readField fmt getter >>= either fail return
-                 return $ Right $ Easy f
+                 f <- readField fmt getter
+                 return $ Easy f
     writeSmart fmt x@(Easy a) =
         withCons fmt (CInfo "Easy" (NF 1) False 0) $ withField fmt writeInt
         where writeInt = do putter <- getSmartPut fmt
@@ -409,7 +409,7 @@ instance SmartCopy Bla where
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "Bla" Empty False 0 , return $ Right Bla)]
+        readCons fmt [(CInfo "Bla" Empty False 0 , return Bla)]
     writeSmart fmt bla =
         withCons fmt (CInfo "Bla" Empty False 0) (return ())
 
@@ -425,10 +425,10 @@ instance SmartCopy Bar where
     readSmart fmt =
         readCons fmt [ (CInfo "BarLeft" (NF 0) True 0 , readBarLeft)
                        , (CInfo "BarRight" (NF 1) True 1 , readBarRight)]
-        where readBarLeft = return $ Right BarLeft
+        where readBarLeft = return BarLeft
               readBarRight = do getter <- getSmartGet fmt
-                                f <- readField fmt getter >>= either fail return
-                                return $ Right $ BarRight f 
+                                f <- readField fmt getter
+                                return $ BarRight f 
 
 instance SmartCopy Some2 where
     version = 1
@@ -440,8 +440,8 @@ instance SmartCopy Some2 where
     readSmart fmt =
         readCons fmt [(CInfo "Some2" (NF 1) False 0 , readSome2)]
         where readSome2 = do getSpam <- getSmartGet fmt
-                             spam <- readField fmt getSpam >>= either fail return
-                             return $ Right $ Some2 spam
+                             spam <- readField fmt getSpam
+                             return $ Some2 spam
 
 instance SmartCopy Some where
     version = 1
@@ -456,9 +456,9 @@ instance SmartCopy Some where
         readCons fmt [(CInfo "Some" (NF 2) False 0 , readSome)]
         where readSome = do getSpam <- getSmartGet fmt
                             getInt <- getSmartGet fmt
-                            spam <- readField fmt getSpam >>= either fail return
-                            int <- readField fmt getInt >>= either fail return
-                            return $ Right $ Some spam int
+                            spam <- readField fmt getSpam
+                            int <- readField fmt getInt
+                            return $ Some spam int
 
                              
 instance SmartCopy Spam where
@@ -472,8 +472,8 @@ instance SmartCopy Spam where
         readCons fmt [(CInfo "Spam" (NF 1) False 0 , readSpam)]
         where readSpam =
                 do getI <- getSmartGet fmt
-                   i <- readField fmt getI >>= either fail return
-                   return $ Right $ Spam i
+                   i <- readField fmt getI
+                   return $ Spam i
 
 instance SmartCopy Spam2 where
     version = 1
@@ -488,9 +488,9 @@ instance SmartCopy Spam2 where
         readCons fmt [(CInfo "Spam2" (NF 2) False 0 , readSpam2)]
         where readSpam2 =
                 do getter <- getSmartGet fmt
-                   i1 <- readField fmt getter >>= either fail return
-                   i2 <- readField fmt getter >>= either fail return
-                   return $ Right $ Spam2 i1 i2
+                   i1 <- readField fmt getter
+                   i2 <- readField fmt getter
+                   return $ Spam2 i1 i2
 
 instance SmartCopy SumTest where
     version = 1
@@ -510,16 +510,16 @@ instance SmartCopy SumTest where
                      ,(CInfo "SumTest2" (NF 1) True 1 , readSum2)
                      ,(CInfo "SumTest3" (NF 2) True 2 , readSum3)
                      ]
-        where readSum1 = return $ Right SumTest1
+        where readSum1 = return SumTest1
               readSum2 =
                 do getter <- getSmartGet fmt
-                   i1 <- readField fmt getter >>= either fail return
-                   return $ Right $ SumTest2 i1
+                   i1 <- readField fmt getter
+                   return $ SumTest2 i1
               readSum3 =
                 do getter <- getSmartGet fmt
-                   i1 <- readField fmt getter >>= either fail return
-                   i2 <- readField fmt getter >>= either fail return
-                   return $ Right $ SumTest3 i1 i2
+                   i1 <- readField fmt getter
+                   i2 <- readField fmt getter
+                   return $ SumTest3 i1 i2
         
 -------------------------------------------------------------------------------
 -- Examples

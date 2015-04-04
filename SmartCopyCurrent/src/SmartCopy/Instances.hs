@@ -29,9 +29,7 @@ import Control.Monad (liftM2, liftM)
 instance SmartCopy a => SmartCopy (SC.Prim a) where
     version = 0
     kind = primitive
-    readSmart fmt =
-        do res <- readSmart fmt
-           either fail (return . Right . SC.Prim) res
+    readSmart fmt = liftM SC.Prim $ readSmart fmt
     writeSmart fmt (SC.Prim a) =
         writeSmart fmt a
 
@@ -40,9 +38,7 @@ instance SmartCopy Int where
     writeSmart = writeInt
 
 instance SmartCopy Int32 where
-    readSmart fmt =
-        do res <- readInt fmt
-           either fail (return . Right . fromIntegral) res
+    readSmart fmt = liftM fromIntegral $ readInt fmt
     writeSmart fmt = writeInt fmt . fromIntegral
 
 instance SmartCopy Char where
@@ -70,15 +66,17 @@ instance SmartCopy a => SmartCopy [a] where
     writeSmart = writeRepetition
 
 instance (SmartCopy a, SmartCopy b) => SmartCopy (a, b) where
-    readSmart fmt
+    readSmart fmt = liftM2 (,) (readSmart fmt) (readSmart fmt)
+    {-
         = do res1 :: Either String a <- readSmart fmt
              res2 :: Either String b <- readSmart fmt
              case res1 of
                Right a1 ->
                    case res2 of
-                     Right a2 -> return $ Right (a1, a2)
+                     Right a2 -> return (a1, a2)
                      Left msg -> fail msg
                Left msg -> fail msg
+               -}
     writeSmart fmt (a, b) = writeSmart fmt a >> writeSmart fmt b
 
 instance SmartCopy BS.ByteString where

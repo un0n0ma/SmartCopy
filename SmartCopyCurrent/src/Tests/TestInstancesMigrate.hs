@@ -71,9 +71,9 @@ instance SmartCopy EasyV2 where
             readEasy =
                 do get1 <- getSmartGet fmt
                    get2 <- getSmartGet fmt
-                   f1 <- readField fmt get1 >>= either fail return
-                   f2 <- readField fmt get2 >>= either fail return
-                   return $ Right $ EasyV2 f1 f2
+                   f1 <- readField fmt get1
+                   f2 <- readField fmt get2
+                   return $ EasyV2 f1 f2
     writeSmart fmt (EasyV2 int string) =
         withCons fmt (CInfo "EasyV2" (NF 2) False 0) writeFields
         where
@@ -91,8 +91,8 @@ instance SmartCopy SomeV2 where
         where
             readSpam =
                 do getSpam <- getSmartGet fmt
-                   sp <- readField fmt getSpam >>= either fail return
-                   return $ Right $ SomeV2 sp
+                   sp <- readField fmt getSpam
+                   return $ SomeV2 sp
     writeSmart fmt (SomeV2 sp) =
         withCons fmt (CInfo "SomeV2" (NF 1) False 0) $ withField fmt $ smartPut fmt sp
 
@@ -111,9 +111,9 @@ instance SmartCopy SomeV1 where
         readCons fmt [(CInfo "SomeV1" (NF 2) False 0, readSome)]
         where readSome = do getSpam <- getSmartGet fmt
                             getInt <- getSmartGet fmt
-                            spam <- readField fmt getSpam >>= either fail return
-                            int <- readField fmt getInt >>= either fail return
-                            return $ Right $ SomeV1 spam int
+                            spam <- readField fmt getSpam
+                            int <- readField fmt getInt
+                            return $ SomeV1 spam int
 
 
 instance Migrate EasyV2 where
