@@ -32,6 +32,7 @@ import Text.Parsec (try)
 import qualified Data.Proxy as P
 
 import Control.Applicative
+import Control.Arrow ((***))
 import Control.Monad
 import Data.Data hiding (Proxy)
 import Data.Typeable hiding (Proxy)
@@ -46,21 +47,20 @@ instance GSmartCopy U1 where
     gwriteSmart fmt _ _ _ = return $ return (\U1 -> return ())
     greadSmart fmt _ _ = return $ return $ return $ Right U1
 
-instance (GVersion f, Datatype d, Selectors f, GSmartCopy f) => GSmartCopy (M1 D d f) where
+instance
+    (GVersion f, Datatype d, ConParserMap f, Selectors f, GSmartCopy f)
+    => GSmartCopy (M1 D d f) where
     gwriteSmart fmt d@(M1 x) _ _
         = liftM (liftM (\g (M1 x) -> g x)) $ gwriteSmart fmt x [] []
     greadSmart fmt _ _
-        = liftM (liftM (liftM (fmap M1))) $ greadSmart fmt [] []
-         
+        = return $ return $
+            do conList <- mkConList fmt (P.Proxy :: P.Proxy f) 0
+               conMap <- mkConParserMap fmt (undefined :: f x) 0
+               liftM (fmap M1) $ readCons fmt conMap
 
 instance (GVersion f, ConList f, Constructor c, Selectors f, GSmartCopy f) => GSmartCopy (M1 C c f) where
     gwriteSmart fmt con@(M1 x) [] _ --- single constructor
-        = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
-             [cons] <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) 0
-             return $ return $ \(M1 x) -> withCons fmt cons $
-               do wrapped <- gwriteSmart fmt x [] types
-                  getter <- wrapped
-                  getter x
+        = liftM (liftM (\g (M1 x) -> g x)) $ gwriteSmart fmt x [] []
     gwriteSmart fmt con@(M1 x) [cons] _ --- sumtype constructor
         = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
              return $ return $ \(M1 x) -> withCons fmt cons $
@@ -68,17 +68,18 @@ instance (GVersion f, ConList f, Constructor c, Selectors f, GSmartCopy f) => GS
                   getter <- wrapped
                   getter x
     greadSmart fmt [] _
-        = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
+        = undefined {- do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
              [cons] <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) 0
              wrapped <- greadSmart fmt [] types
              return $ return $
-                    liftM (fmap M1) $ readCons fmt [(cons, join wrapped)]
+                    liftM (fmap M1) $ readCons fmt [(cons, join wrapped)] -}
     greadSmart fmt conList _
-        = do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
+        = undefined {-do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
              wrapped <- greadSmart fmt [] types
              return $ return $
                  liftM (fmap M1) $
                      readCons fmt $ zip (conList++[emptyCons]) $ repeat $ join wrapped
+                     -}
 
 instance (Selector s, GSmartCopy f, GVersion f) => GSmartCopy (M1 S s f) where
     gwriteSmart fmt (M1 a) _ types
@@ -127,7 +128,7 @@ instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmart
              _:conListR <- mkConList (P.Proxy :: P.Proxy (a :+: b)) conInd
              liftM (liftM $ \g (R1 x) -> g x) $ gwriteSmart fmt x conListR []
     greadSmart fmt conList _
-        = do let conInd
+        = undefined {-do let conInd
                    | null conList
                    = 0
                    | otherwise
@@ -136,6 +137,7 @@ instance (ConNames a, ConNames b, Selectors a, Selectors b, GSmartCopy a, GSmart
              liftM2 (liftM2 $ withLookahead fmt conInd)
                     (liftM (liftM (liftM (fmap L1))) $ greadSmart fmt [conListL] [])
                     (liftM (liftM (liftM (fmap R1))) $ greadSmart fmt conListR [])
+                    -}
 
 instance (GSmartCopy a, GSmartCopy b, GVersion a, GVersion b) => GSmartCopy (a :*: b) where
     gwriteSmart fmt (a :*: b) _ types
@@ -323,3 +325,30 @@ dupRepsToNothing' ((x,v):xs) ls
   | Just x `elem` ls = (Nothing, v):dupRepsToNothing' xs ls
   | otherwise = (Just x, v):dupRepsToNothing' xs (Just x:ls)
 
+-------------------------------------------------------------------------------
+-- Helper functions/types to convert constructor list f_0 :+: f_1 :+: ... f_n
+-- into value level list of forall a. [(Cons, m (t a))]
+-------------------------------------------------------------------------------
+class ConParserMap f where
+    mkConParserMap :: (Applicative m, Monad m, Alternative m, Selectors f)
+                   => ParseFormat m -> f a -> Integer -> m [(ConstrInfo, m (Either String (f a)))]
+
+instance
+    (Constructor c, ConList g, ConList f, GSmartCopy f, Selectors f, Selectors g, ConParserMap g, GVersion f)
+    => ConParserMap (M1 C c f :+: g) where
+    mkConParserMap fmt _ conInd =
+       do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
+          consL':_ <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) conInd
+          let consL = consL' { ctagged = True, cindex = conInd }
+          consMapR <- mkConParserMap fmt (undefined :: g a) (conInd + 1)
+          return $
+            ( consL, liftM (fmap (L1 . M1)) (join $ join $ greadSmart fmt [] types))
+            : map (id *** liftM (fmap R1)) consMapR
+
+instance
+    (Constructor c, ConList f, GSmartCopy f, Selectors f, GVersion f)
+    => ConParserMap (M1 C c f) where
+    mkConParserMap fmt _ conInd =
+        do let types = dupRepsToNothing $ gversions (P.Proxy :: P.Proxy f)
+           [cons] <- mkConList (P.Proxy :: P.Proxy (M1 C c f)) (conInd + 1)
+           return [(cons, liftM (fmap M1) (join $ join $ greadSmart fmt [] types))]
