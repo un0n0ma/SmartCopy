@@ -214,15 +214,6 @@ pFormat
                              local (const $ Right rest) getter 
                          Left msg -> return $ Left msg
                    Nothing -> readSmart pFormat
-    , withLookahead =
-          \_ ma mb ->
-              do val <- ask
-                 res <- ma
-                 case res of
-                   Left _ ->
-                       local (const val) mb
-                   r@(Right _) ->
-                       return r
     , readCons =
           \cons ->
               do val <- ask
@@ -654,15 +645,6 @@ pFormatUnvers :: ParseFormat (FailT (ReaderT (Either String Json.Value) (State [
 pFormatUnvers
     = ParseFormat
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
-    , withLookahead =
-          \_ ma mb ->
-              do val <- ask
-                 res <- ma
-                 case res of
-                   Left _ ->
-                       local (const val) mb
-                   r@(Right _) ->
-                       return r
     , readCons =
         \cons ->
             do val <- ask

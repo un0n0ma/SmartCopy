@@ -135,8 +135,6 @@ data ParseFormat m
     = ParseFormat
     { mkGetter :: SmartCopy a => Bool -> Int32 -> m (m (Either String a))
     --- Bool: save byte by not writing out version. Int32: Version of duplicate type.
-    , withLookahead :: forall a.
-            Integer -> m (Either String a) -> m (Either String a) -> m (Either String a)
     , readCons :: forall a. [(ConstrInfo, m (Either String a))] -> m (Either String a)
     , readField :: forall a. m (Either String a) -> m (Either String a)
     , readRepetition :: SmartCopy a => m (Either String [a])

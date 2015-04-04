@@ -319,15 +319,6 @@ pFormat
                                      Left msg -> fail msg
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
-    , withLookahead =
-          \_ ma mb ->
-              do consumed <- lift $ lift get
-                 res <- ma
-                 case res of
-                   Left _ ->
-                       lift (lift $ put consumed) >> mb
-                   r@(Right _) ->
-                       return r
     , readCons =
           \cons ->
               do elem <- lift $ lift get

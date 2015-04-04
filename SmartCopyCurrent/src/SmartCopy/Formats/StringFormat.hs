@@ -177,15 +177,6 @@ pFormat
                           Left msg -> return $ return $ Left msg
                  else either fail return $
                       constructGetterFromVersion pFormat (Version prevVer) kind
-    , withLookahead =
-          \_ ma mb ->
-          do consumed <- get
-             res <- ma
-             case res of
-               Left _ ->
-                   put consumed >> mb
-               r@(Right _) ->
-                   return r
     , readCons =
           \cons ->
               do str <- get
