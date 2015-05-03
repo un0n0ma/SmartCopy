@@ -1,13 +1,22 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
+-- |Formats for serialization and deserialization of a datatype in a simple
+-- XML representation. Unversioned or additionally supporting version control
+-- and writing out version tags as XML attributes.
 module Data.SmartCopy.Formats.XmlLike
        ( serializeUnvers
        , parseUnvers
        , serializeSmart
        , parseSmart
+       , serializeLastKnown
+       , parseLastKnown
+       , toXmlString
+       , fromXmlString
        )
 where
 
@@ -17,19 +26,20 @@ where
 import Data.SmartCopy
 import Data.SmartCopy.MonadTypesInstances (FailT, runFailT)
 import Data.SmartCopy.SmartCopy
-       ( mismatch
-       , conLookupErr
-       , ConstrInfo (..)
-       , Fields (..)
-       , getSmartPut
-       , getSmartGet
-       , constructGetterFromVersion
-       , noCons
-       )
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import Data.String.Utils
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC (pack, unpack)
+import qualified Data.List as L
+import qualified Data.Map as M
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
+import qualified Data.Text.Lazy as TL
+import qualified Text.XML as X
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import qualified Data.List as L
@@ -39,52 +49,74 @@ import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
 import qualified Data.Text.Lazy as TL
 import qualified Text.XML as X
 
-import Data.String.Utils
---import Data.String.UTF8 hiding (length)
-
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import "mtl" Control.Monad.Reader
-import "mtl" Control.Monad.State
-import "mtl" Control.Monad.Writer
-
 import Control.Applicative
 import Control.Arrow
 import Control.Monad.Loops
 import Data.Either (lefts, rights)
 
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
+import "mtl" Control.Monad.Writer
 
 -------------------------------------------------------------------------------
 -- Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
 
+-- |Convert a datatype made an instance of SmartCopy into a versioned XML 
+-- representation.
+serializeSmart :: SmartCopy a => a -> X.Element
 serializeSmart a
-    = TL.unpack $ X.renderText X.def $
-                  X.Document (X.Prologue [] Nothing [])
-                 (runSerialization (smartPut sFormat a)) []
-    where runSerialization m
-                = execState (evalStateT m []) emptyEl
+    = runSerialization (smartPut sFormat a)
 
-parseSmart :: SmartCopy a => String -> Fail a
+-- |Parse a datatype made an instance of SmartCopy from a versioned XML
+-- representation.
+parseSmart :: SmartCopy a => X.Element -> Fail a
 parseSmart
     = runParser (smartGet pFormat)
-    where runParser action value =
-              do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
-                 evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
 
+-- |Convert a datatype made an instance of SmartCopy into an unversioned XML
+-- representation.
+serializeUnvers :: SmartCopy a => a -> X.Element
 serializeUnvers a
-    = TL.unpack $ X.renderText X.def $
-                    X.Document (X.Prologue [] Nothing [])
-                    (runSerialization (writeSmart sFormatUnvers a)) []
+    = runSerialization (writeSmart sFormatUnvers a Nothing)
     where runSerialization m = execState (evalStateT m []) emptyEl
 
-parseUnvers :: SmartCopy a => String -> Fail a
+-- |Parse a datatype made an instance of SmartCopy from an unversioned XML
+-- representation.
+parseUnvers :: SmartCopy a => X.Element -> Fail a
 parseUnvers
     = runParser (readSmart pFormatUnvers)
-    where runParser action value =
-              do let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
-                 evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
+    where runParser action el =
+              evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
+
+-- |Check if a datatype version is known by a communicating component,
+-- indicated by its identifier being present in the list of all known
+-- identifiers. Convert the latest known version of the datatype into its
+-- versioned XML representation.
+serializeLastKnown :: SmartCopy a => a -> [String] -> X.Element
+serializeLastKnown a ids
+    = runSerialization (smartPutLastKnown sFormatBackComp a ids)
+
+-- |Parse a versioned datatype serialized using the back-compatible XML format.
+parseLastKnown :: SmartCopy a => X.Element -> Fail a
+parseLastKnown
+    = runParser (smartGet pFormatBackComp)
+    
+-- |Convert an XML root element to a string, using Data.XML functions.
+toXmlString = TL.unpack . (\doc -> X.renderText X.def doc) . (\m -> X.Document (X.Prologue [] Nothing []) m [])
+
+runSerialization m = execState (evalStateT m []) emptyEl
+
+runParser action el =
+       evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
+
+-- |Obtain an XML root element from an input string, using Data.XML functions.
+fromXmlString value =
+    let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
+    in el
 
 -------------------------------------------------------------------------------
 -- Xml serialization unversioned
@@ -92,9 +124,9 @@ parseUnvers
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
+    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , writeRepetition =
-          \ar ->
+          \ar _ ->
               do let arrAttr = M.fromList [("type", "array")]
                  let value = X.Element (makeName (T.pack "value")) M.empty []
                  case length ar of
@@ -104,18 +136,18 @@ sFormatUnvers
                    n -> do let value = X.Element (makeName (T.pack "value")) M.empty []
                            put $ replicate n (X.NodeElement value)
                            forM_ ar $ \a ->
-                               do withField sFormatUnvers $ writeSmart sFormatUnvers a
+                               do withField sFormatUnvers $ writeSmart sFormatUnvers a Nothing
                                   field <- get
                                   put field
                            res <- get
                            put res
                            lift $ put $ X.Element (makeName "PrimList") arrAttr res
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
                 Just a ->
                     do let optAttr = M.fromList [("type", "opt")]
-                       writeSmart sFormatUnvers a
+                       writeSmart sFormatUnvers a Nothing
                        el <- lift get
                        lift $ put $ X.Element (X.elementName el) optAttr (X.elementNodes el)
                 Nothing ->
@@ -123,14 +155,13 @@ sFormatUnvers
                        return ()
     }
 
-
 -------------------------------------------------------------------------------
 -- Xml parsing unversioned
 -------------------------------------------------------------------------------
 
 pFormatUnvers
     = pFormat
-    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
+    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers
     , readRepetition =
           do nodes <- lift $ lift $ lift get
              el' <- lift $ lift get
@@ -163,6 +194,180 @@ pFormatUnvers
 
     
 -------------------------------------------------------------------------------
+-- Xml serialization versioned with back-migration
+-------------------------------------------------------------------------------
+sFormatBackComp
+    = sFormat
+    { mkPutter =
+          \b ver mIds ->
+              case mIds of
+                Just _ ->
+                    return $ \a ->
+                        do writeSmart sFormatBackComp a mIds
+                           resEl <- lift get
+                           let versEl = resEl
+                                      { X.elementAttributes =
+                                      M.insert (makeName (T.pack "version"))
+                                      (T.pack $ show ver)
+                                      (X.elementAttributes resEl) }
+                           lift $ put versEl
+                Nothing ->
+                    fail $ noIDListErr "[type not yet known]"
+    , withCons =
+          \cons ma ->
+              do let fields =
+                          case cfields cons of
+                            Empty -> []
+                            NF i -> map (T.pack . (++) "Field" . show) [0..i-1]
+                            LF ls -> ls
+                 let nodes = map makeEmptyNode fields
+                 put nodes
+                 ma
+                 resNodes <- get
+                 put [X.NodeElement $ X.Element
+                      (makeName $ T.pack $ cidentifier cons ++ "Ind" ++ show (cindex cons))
+                      M.empty resNodes]
+                 lift $ put $ X.Element
+                     (makeName $ T.pack $ cidentifier cons ++ "Ind" ++ show (cindex cons))
+                     M.empty resNodes
+    , writeRepetition =
+          \ar mIds ->
+              case mIds of
+                Just allIds ->
+                    do let value = X.Element (makeName (T.pack "value")) M.empty []
+                           arrAttr = M.fromList [("type", "array")]
+                       case ar of
+                         [] ->
+                             do put [X.NodeElement value]
+                                lift $ put $ X.Element (makeName "PrimList") arrAttr []
+                                return ()
+                         h:t ->
+                             do lift $ put value
+                                putter <- getSmartPutLastKnown sFormatBackComp allIds
+                                unversHead <- lift get
+                                put [X.NodeElement unversHead]
+                                withField sFormatBackComp $ putter h
+                                versHead <- get
+                                put $ replicate (length ar - 1) (X.NodeElement value)
+                                forM_ t $ \a ->
+                                     do withField sFormatBackComp $ writeSmart sFormatBackComp a Nothing
+                                        field <- get
+                                        put field
+                                res <- get
+                                put $ versHead++res
+                                lift $ put $
+                                    X.Element (makeName "PrimList") arrAttr (versHead++res)
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => [a]"
+    , writeMaybe =
+          \ma mIds ->
+              case mIds of
+                Just allIds ->
+                    case ma of
+                      Just a ->
+                          do let optAttr = M.fromList [("type", "opt")]
+                             putter <- getSmartPutLastKnown sFormatBackComp allIds
+                             putter a
+                             el <- lift get
+                             lift $ put $ X.Element (X.elementName el) optAttr (X.elementNodes el)
+                      Nothing ->
+                          do put []
+                             return ()
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => Maybe a"
+    }
+    
+
+-------------------------------------------------------------------------------
+-- Versioned parsing with back-migration
+-------------------------------------------------------------------------------
+
+pFormatBackComp
+    = pFormat
+    { mkGetter =
+          \_ _ prevVers ->
+              do nodeElems <- get
+                 case nodeElems of
+                   [] ->
+                       return $ readSmart pFormatBackComp
+                   _ ->
+                       do el <- pop
+                          case el of
+                            X.NodeContent _ ->
+                                return $ readSmart pFormatBackComp
+                            X.NodeElement el ->
+                                do vers <- readVersion el
+                                   case prevVers of
+                                     Just p ->
+                                         case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                                           Right getter ->
+                                               return getter
+                                           Left msg ->
+                                               fail msg
+                                     Nothing ->
+                                         case vers of
+                                           Just v ->
+                                               case constructGetterFromVersion pFormatBackComp v kind of
+                                                 Right getter ->
+                                                     return getter
+                                                 Left msg ->
+                                                     fail msg
+                                           Nothing -> 
+                                               return $ readSmart pFormatBackComp
+                            _ ->
+                                return $ mismatch "NodeContent or NodeElement" (show nodeElems)
+    , readCons =
+          \cons ->
+              do elem <- lift $ lift get
+                 case cons of
+                   [] -> noCons
+                   x:_ -> 
+                       do let con = elName elem
+                              conId = cidentifier (fst x) ++ "Ind"
+                              conLkp = map (T.pack . (++) conId . show . cindex . fst) cons
+                              parsers = map snd cons
+                          case lookup con (zip conLkp parsers) of
+                            Just parser ->
+                                do lift $ lift $ lift $ put $ X.elementNodes elem
+                                   put $ X.elementNodes elem
+                                   parser
+                            _ -> conLookupErr (show con) (show conLkp)
+    , readRepetition =
+          do nodes <- lift $ lift $ lift get
+             el' <- lift $ lift get
+             case nodes of
+               [] ->
+                   case el' of
+                     X.Element (X.Name "PrimList" _ _) _ nodes' ->
+                         do lift $ lift $ lift $ put nodes'
+                            readListVals nodes'
+                     _ -> return []
+               _ -> readListVals nodes
+    , readMaybe =
+          do nodes <- lift $ lift $ lift get
+             case nodes of
+               [] -> return Nothing
+               X.NodeElement el:xs ->
+                   case X.elementNodes el of
+                     [] -> return Nothing
+                     elNodes ->
+                         do put nodes
+                            lift $ lift $ lift $ put xs
+                            getSmartGet pFormatBackComp >>= liftM Just
+               cont@[X.NodeContent x] ->
+                   do put cont
+                      getSmartGet pFormatBackComp >>= liftM Just 
+               h:_ -> mismatch "Maybe node" (show h)
+   }
+   where readListVals :: SmartCopy a
+                       => [X.Node]
+                       -> FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))) [a]
+         readListVals nodes =
+             do put nodes
+                getter <- getSmartGet pFormatBackComp
+                replicateM (length nodes) $ readField pFormatBackComp getter
+
+-------------------------------------------------------------------------------
 -- Xml serialization versioned
 -------------------------------------------------------------------------------
 
@@ -170,9 +375,9 @@ sFormat :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormat
     = SerializationFormat
     { mkPutter =
-          \_ ver ->
+          \_ ver _ ->
               return $ \a ->
-                  do writeSmart sFormat a
+                  do writeSmart sFormat a Nothing
                      resEl <- lift get
                      let versEl = resEl
                                 { X.elementAttributes =
@@ -185,7 +390,7 @@ sFormat
               do let fields =
                           case cfields cons of
                             Empty -> []
-                            NF i -> map (T.pack . show) [0..i-1]
+                            NF i -> map (T.pack . (++) "Field" . show) [0..i-1]
                             LF ls -> ls
                  let nodes = map makeEmptyNode fields
                  put nodes
@@ -241,7 +446,7 @@ sFormat
                   put resNodes
                   lift $ put $ X.Element (makeName $ T.pack "PrimChar") M.empty resNodes
     , writeRepetition =
-          \ar ->
+          \ar _ ->
               do let value = X.Element (makeName (T.pack "value")) M.empty []
                      arrAttr = M.fromList [("type", "array")]
                  case ar of
@@ -258,14 +463,14 @@ sFormat
                           versHead <- get
                           put $ replicate (length ar - 1) (X.NodeElement value)
                           forM_ t $ \a ->
-                               do withField sFormat $ writeSmart sFormat a
+                               do withField sFormat $ writeSmart sFormat a Nothing
                                   field <- get
                                   put field
                           res <- get
                           put $ versHead++res
                           lift $ put $ X.Element (makeName "PrimList") arrAttr (versHead++res)
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
                 Just a ->
                     do let optAttr = M.fromList [("type", "opt")]
@@ -287,7 +492,6 @@ sFormat
                   put resNodes
                   lift $ put $ X.Element (makeName $ T.pack "PrimText") M.empty resNodes
     }
-    where makeEmptyNode text = X.NodeElement $ X.Element (makeName text) M.empty []
                      
 -------------------------------------------------------------------------------
 -- Versioned parsing
@@ -297,7 +501,7 @@ pFormat :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]
 pFormat
     = ParseFormat
     { mkGetter =
-          \_ prevVer ->
+          \_ _ prevVers ->
               do nodeElems <- get
                  case nodeElems of
                    [] ->
@@ -309,22 +513,29 @@ pFormat
                                 return $ readSmart pFormat
                             X.NodeElement el ->
                                 do vers <- readVersion el
-                                   case vers of
-                                     Just v ->
-                                         case constructGetterFromVersion pFormat v kind of
+                                   case prevVers of
+                                     Just p ->
+                                         case constructGetterFromVersion pFormat (Version p) kind of
                                            Right getter ->
                                                return getter
                                            Left msg ->
                                                fail msg
                                      Nothing ->
-                                         return $ readSmart pFormat
+                                         case vers of
+                                           Just v ->
+                                               case constructGetterFromVersion pFormat v kind of
+                                                 Right getter ->
+                                                     return getter
+                                                 Left msg ->
+                                                     fail msg
+                                           Nothing -> 
+                                               return $ readSmart pFormat
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
     , readCons =
           \cons ->
               do elem <- lift $ lift get
                  let conNames = map (cname . fst) cons
-                     conFields = map (cfields . fst) cons
                      parsers = map snd cons
                  case cons of
                    [] -> noCons
@@ -384,7 +595,7 @@ pFormat
                _ -> readListVals nodes
     , readInt =
           do nodes <- lift $ lift $ lift get
-             -- Handles primitive values at toplevel, wraps vals in XML-elements
+             -- Handles primitive values at top-level, wraps vals in XML-elements
              el' <- lift $ lift get
              case nodes of
                [] ->
@@ -441,7 +652,6 @@ pFormat
                [] -> return Nothing
                X.NodeElement el:xs ->
                    case X.elementNodes el of
-                     --  TODO: Not sure if this is correct
                      [] -> return Nothing
                      elNodes ->
                          do put nodes
@@ -505,24 +715,12 @@ pFormat
                       [c] -> return c
                       _ -> mismatch "Char" (show t)
                 _ -> mismatch "NodeContent" (show n)
+          readListVals :: SmartCopy a
+                       => [X.Node]
+                       -> FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))) [a]
           readListVals nodes =
               do put nodes
                  getSmartGet pFormat >>= (replicateM (length nodes) . readField pFormat)
-          pop =
-              do nodes <- get
-                 case nodes of
-                   [] -> return $ X.NodeElement emptyEl
-                   h:t -> do { put t; return h }
-          readVersion el =
-              do let attribs = map ((X.nameLocalName . fst) &&& snd)
-                                   (M.toList $ X.elementAttributes el)
-                     vers = lookup (T.pack "version") attribs 
-                 case vers of
-                   Just vText ->
-                       case (reads . T.unpack) vText of
-                         [(int,[])] -> return $ Just $ Version int
-                         _ -> mismatch "int32 for version" (show vText)
-                   Nothing -> return Nothing
 
 
 -------------------------------------------------------------------------------
@@ -535,3 +733,21 @@ makeName t = X.Name t Nothing Nothing
 
 elName = X.nameLocalName . X.elementName
 
+makeEmptyNode text = X.NodeElement $ X.Element (makeName text) M.empty []
+
+pop =
+    do nodes <- get
+       case nodes of
+         [] -> return $ X.NodeElement emptyEl
+         h:t -> do { put t; return h }
+
+readVersion el =
+    do let attribs = map ((X.nameLocalName . fst) &&& snd)
+                         (M.toList $ X.elementAttributes el)
+           vers = lookup (T.pack "version") attribs 
+       case vers of
+         Just vText ->
+             case (reads . T.unpack) vText of
+               [(int,[])] -> return $ Just $ Version int
+               _ -> mismatch "int32 for version" (show vText)
+         Nothing -> return Nothing

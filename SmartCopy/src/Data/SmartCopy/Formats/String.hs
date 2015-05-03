@@ -1,13 +1,21 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
-
+-- |Formats for serializing and deserializing a datatype in a simple String
+-- representation, enclosing constructor and field names and parenthesises.
+-- Unversioned or additionally writing out all version tags after the
+-- constructor name deriveSafeCopy-style.
 module Data.SmartCopy.Formats.String
        ( serializeUnvers
        , parseUnvers
        , serializeSmart
        , parseSmart
+       , serializeLastKnown
+       , parseLastKnown
        )
 where
 
@@ -17,27 +25,16 @@ where
 import Data.SmartCopy
 import Data.SmartCopy.MonadTypesInstances (FailT, runFailT)
 import Data.SmartCopy.SmartCopy
-       ( mismatch
-       , conLookupErr
-       , noCons
-       , getSmartGet
-       , getSmartPut
-       , constructGetterFromVersion
-       , kindFromProxy
-       , Proxy (..)
-       , ConstrInfo (..)
-       , Fields (..)
-       )
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import Data.List.Utils (startswith)
+
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.List as L (span)
 import qualified Data.Text as T
-
-import Data.List.Utils (startswith)
 
 -------------------------------------------------------------------------------
 -- STDLIB
@@ -50,19 +47,47 @@ import "mtl" Control.Monad.Writer
 -- Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
 
+-- |Convert a datatype made an instance of SmartCopy into its versioned String
+-- representation. The String format handles versions in the same way as
+-- deriveSafeCopy, so that the version tags of all fields of a datatype are
+-- written out in the beginning.
+serializeSmart :: SmartCopy a => a -> String
 serializeSmart a = runSerialization (smartPut sFormat a)
     where runSerialization m = snd $ runWriter m
 
+-- |Parse a datatype made an instance of SmartCopy from its versioned String
+-- representation.
 parseSmart :: SmartCopy a => String -> Fail a
 parseSmart = runParser (smartGet pFormat)
-    where runParser action = evalState (runFailT action)
 
-serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
+-- |Convert a datatype made an instance of SmartCopy into its unversioned String
+-- representation.
+serializeUnvers :: SmartCopy a => a -> String
+serializeUnvers a = runSerialization (writeSmart sFormatUnvers a Nothing)
     where runSerialization m = snd $ runWriter m
 
+-- |Parse a datatype made an instance of SmartCopy from its unversioned String
+-- representation.
 parseUnvers :: SmartCopy a => String -> Fail a
 parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action = evalState (runFailT action)
+
+-- |Check if a datatype version is known by a communicating component,
+-- indicated by its identifier being present in the list of all known
+-- identifiers. Convert the latest known version of the datatype into its
+-- versioned String representation.
+serializeLastKnown :: SmartCopy a => a -> [String] -> String
+serializeLastKnown a ids =
+    runSerialization $ smartPutLastKnown sFormatBackComp a ids
+    where runSerialization m = snd $ runWriter m
+
+-- |Parse a versioned datatype serialized using the back-compatible String
+-- format.
+parseLastKnown :: SmartCopy a => String -> Fail a
+parseLastKnown =
+    runParser (smartGet pFormatBackComp)
+
+runParser action = evalState (runFailT action)
 
 -------------------------------------------------------------------------------
 -- Unversioned serialization
@@ -70,22 +95,22 @@ parseUnvers = runParser (readSmart pFormatUnvers)
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
+    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , writeRepetition =
-          \rep ->
+          \rep _ ->
               do tell "["
                  case length rep of
                    0 -> return ()
                    n -> do mapM_ (\a ->
-                                  do writeSmart sFormatUnvers a
+                                  do writeSmart sFormatUnvers a Nothing
                                      tell ",") (init rep)
-                           writeSmart sFormatUnvers $ last rep
+                           writeSmart sFormatUnvers (last rep) Nothing
                  tell "]"
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
                 Nothing -> tell "Nothing"
-                Just a -> writeSmart sFormatUnvers a
+                Just a -> writeSmart sFormatUnvers a Nothing
     }
 
 -------------------------------------------------------------------------------
@@ -118,6 +143,118 @@ pFormatUnvers
     }
 
 -------------------------------------------------------------------------------
+-- Versioned serialization with back-migration
+-------------------------------------------------------------------------------
+
+sFormatBackComp
+    = sFormat
+    { mkPutter =
+          \b ver mIds ->
+              case mIds of
+                Just _ ->
+                    if b
+                       then do wrapM $ tell $ "version:" ++ show ver
+                               return $ \a -> writeSmart sFormatBackComp a mIds
+                       else return $ \a -> writeSmart sFormatBackComp a mIds
+                Nothing ->
+                    fail $ noIDListErr "[type not yet known]"
+    , withCons =
+          \cons ma ->
+              do { tell $ cidentifier cons ++ ":" ++ show (cindex cons); ma }
+    , writeRepetition =
+          \rep mIds ->
+              case mIds of
+                Just allIds ->
+                    do tell "["
+                       case rep of
+                         [] -> return ()
+                         (x:xs) ->
+                             do putter <- getSmartPutLastKnown sFormatBackComp allIds
+                                putter x
+                                tell ","
+                                mapM_ (\a ->
+                                          do writeSmart sFormatBackComp a mIds
+                                             tell ",") $ init xs
+                                writeSmart sFormatBackComp (last xs) mIds
+                       tell "]"
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => [a]"
+    , writeMaybe =
+          \ma mIds ->
+              case mIds of
+                Just allIds ->
+                    case ma of
+                      Nothing -> tell "Nothing"
+                      Just a -> smartPutLastKnown sFormatBackComp a allIds
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => Maybe a"
+     }
+    where wrapM m = do { tell " ("; m; tell ")" }
+
+-------------------------------------------------------------------------------
+-- Versioned parsing with back-migration
+-------------------------------------------------------------------------------
+
+pFormatBackComp
+    = pFormat
+    { mkGetter =
+          \b dupVers prevVers ->
+              if b
+                 then
+                     do let kind = kindFromProxy (Proxy :: Proxy a)
+                        version <- readVersion
+                        case prevVers of
+                          Just p ->
+                              case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                                      Right getter -> return getter
+                                      Left msg -> fail msg
+                          Nothing ->
+                              case version of
+                                Just v -> 
+                                    case constructGetterFromVersion pFormatBackComp v kind of
+                                            Right getter -> return getter
+                                            Left msg -> fail msg
+                                Nothing -> return $ readSmart pFormatBackComp
+                 else either fail return $
+                      constructGetterFromVersion pFormatBackComp (Version dupVers) kind
+    , readCons =
+          \cons ->
+              case cons of
+                [] -> noCons
+                x:_ ->
+                   do con <- startCons
+                      let conId = cidentifier (fst x) ++ ":"
+                          conLkp = map ((++) conId . show . cindex . fst) cons
+                          parsers = map snd cons
+                      case lookup con (zip conLkp parsers) of
+                        Just parser ->
+                           parser
+                        f -> conLookupErr (show con) (show conLkp)
+    , readRepetition =
+          do readVersion
+             str' <- get
+             let str = filter (/=' ') str'
+             case str of
+               '[':xs ->
+                   do let (list, rest) = L.span (/=']') xs
+                      case rest of
+                        ']':xs' ->
+                            do put list
+                               getter <- getSmartGet pFormatBackComp
+                               res <- mapWithDelim getter list []
+                               put xs'
+                               return res
+                        _ -> mismatch "]" rest
+               _ -> mismatch "[" str'
+    , readMaybe =
+          do str' <- get
+             let str = filter (/=' ') str'
+             if startswith "Nothing" str
+                then do put $ snd $ delimit str
+                        return Nothing
+                else liftM Just $ smartGet pFormatBackComp
+    }
+-------------------------------------------------------------------------------
 -- Versioned serialization
 -------------------------------------------------------------------------------
 
@@ -125,18 +262,18 @@ sFormat :: SerializationFormat (Writer String)
 sFormat
     = SerializationFormat
     { mkPutter =
-          \b ver ->
+          \b ver _ ->
               if b
                  then do wrapM $ tell $ "version:" ++ show ver
-                         return $ writeSmart sFormat
-                 else return $ writeSmart sFormat
+                         return $ \a -> writeSmart sFormat a Nothing
+                 else return $ \a -> writeSmart sFormat a Nothing
     , withCons =
           \cons ma ->
               do { tell $ T.unpack $ cname cons; ma }
     , withField =
           wrapM
     , writeRepetition =
-          \rep ->
+          \rep _ ->
               do tell "["
                  case rep of
                    [] -> return ()
@@ -145,9 +282,9 @@ sFormat
                           putter x
                           tell ","
                           mapM_ (\a ->
-                                    do writeSmart sFormat a
+                                    do writeSmart sFormat a Nothing
                                        tell ",") $ init xs
-                          writeSmart sFormat $ last xs
+                          writeSmart sFormat (last xs) Nothing
                  tell "]"
     , writeInt = tell . show
     , writeInteger = tell . show
@@ -156,7 +293,7 @@ sFormat
     , writeString = tell
     , writeBool = tell . show
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
                 Nothing -> tell "Nothing"
                 Just a -> smartPut sFormat a
@@ -174,23 +311,28 @@ pFormat :: ParseFormat (FailT (State String))
 pFormat
     = ParseFormat
     { mkGetter =
-          \b prevVer ->
+          \b dupVers prevVers ->
               if b
                  then
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
-                        case version of
-                          Just v ->
-                              case constructGetterFromVersion pFormat v kind of
+                        case prevVers of
+                          Just p ->
+                              case constructGetterFromVersion pFormat (Version p) kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
-                          Nothing -> return $ readSmart pFormat
+                          Nothing ->
+                              case version of
+                                Just v -> 
+                                    case constructGetterFromVersion pFormat v kind of
+                                            Right getter -> return getter
+                                            Left msg -> fail msg
+                                Nothing -> return $ readSmart pFormat
                  else either fail return $
-                      constructGetterFromVersion pFormat (Version prevVer) kind
+                      constructGetterFromVersion pFormat (Version dupVers) kind
     , readCons =
           \cons ->
-              do str <- get
-                 let conNames = map (cname . fst) cons
+              do let conNames = map (cname . fst) cons
                      parsers = map snd cons
                  case cons of
                    [] -> noCons
@@ -281,19 +423,6 @@ pFormat
                 do put $ drop 5 prim; return False
               | otherwise =
                 mismatch "Bool" prim
-          readVersion =
-              do str' <- get
-                 let str = filter (/=' ') str'
-                     (untilVer, after) = L.span (/=':') str
-                 case after of
-                   ':':xs ->
-                        case reads xs of
-                          [(int, ')':afterVer)] ->
-                              do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
-                                 put withoutVer
-                                 return $ Just $ Version int
-                          _ -> mismatch "int32" after
-                   _ -> return Nothing
 
 
 -------------------------------------------------------------------------------
@@ -349,5 +478,19 @@ mapWithDelim mb list acc
            _ -> do put listelem
                    parseElem <- mb
                    return $ acc ++ [parseElem]
+
+readVersion =
+    do str' <- get
+       let str = filter (/=' ') str'
+           (untilVer, after) = L.span (/=':') str
+       case after of
+         ':':xs ->
+              case reads xs of
+                [(int, ')':afterVer)] ->
+                    do let withoutVer = take (length untilVer - 8) untilVer ++ afterVer
+                       put withoutVer
+                       return $ Just $ Version int
+                _ -> mismatch "int32" after
+         _ -> return Nothing
 
 delimit = L.span (/=')')

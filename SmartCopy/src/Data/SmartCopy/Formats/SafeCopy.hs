@@ -1,10 +1,16 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 
+-- |Formats for serialization and deserialization versioned binary compatible
+-- with Data.SafeCopy and unversioned binary compatible with Data.Serialize.
 module Data.SmartCopy.Formats.SafeCopy
        ( serializeSmart
        , parseSmart
        , serializeUnvers
        , parseUnvers
+       , serializeLastKnown
        )
 where
 
@@ -13,21 +19,10 @@ where
 -------------------------------------------------------------------------------
 import Data.SmartCopy
 import Data.SmartCopy.SmartCopy
-       ( mismatch
-       , conLookupErr
-       , noCons
-       , getSmartGet
-       , getSmartPut
-       , constructGetterFromVersion
-       , ConstrInfo (..)
-       )
-
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
-import qualified Data.Serialize as S
-
 import Data.Bits
 import Data.Char (ord)
 import Data.Int
@@ -38,11 +33,11 @@ import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Word8
 import Data.Word
 
+import qualified Data.Serialize as S
+
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import qualified Data.ByteString as BS
-
 import "mtl" Control.Monad.State
 
 import Control.Applicative
@@ -50,19 +45,72 @@ import Data.Maybe
 import Data.Either (rights, lefts)
 import Data.Typeable
 
+import qualified Data.ByteString as BS
 
 -------------------------------------------------------------------------------
 -- Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
+-- |Convert a datatype made an instance of SmartCopy into a versioned
+-- ByteString. Compatible to Data.SafeCopy.
+serializeSmart :: SmartCopy a => a -> BS.ByteString
 serializeSmart a = S.runPut $ smartPut sFormat a
 
+-- |Parse a datatype made an instance of SmartCopy from a versioned ByteString.
+-- Compatible to Data.SafeCopy.
 parseSmart :: SmartCopy a => BS.ByteString -> Either String a
 parseSmart = S.runGet (smartGet pFormat)
 
-serializeUnvers a = S.runPut $ writeSmart sFormatUnvers a
+-- |Convert a datatype made an instance of SmartCopy into an unversioned
+-- ByteString. Compatible to Data.Serialize.
+serializeUnvers :: SmartCopy a => a -> BS.ByteString
+serializeUnvers a = S.runPut $ writeSmart sFormatUnvers a Nothing
 
+-- |Parse a datatype made an instance of SmartCopy from an unversioned
+-- ByteString. Compatible to Data.Serialize.
 parseUnvers :: SmartCopy a => BS.ByteString -> Either String a
 parseUnvers = S.runGet (readSmart pFormatUnvers)
+
+-- |Check if a datatype version is known by a communicating component,
+-- indicated by its identifier being present in the list of all known
+-- identifiers. Convert the latest known version of the datatype into a 
+-- versioned ByteString.
+serializeLastKnown :: SmartCopy a => a -> [String] -> BS.ByteString
+serializeLastKnown a ids = S.runPut $ smartPutLastKnown sFormatBackComp a ids
+
+-------------------------------------------------------------------------------
+-- Versioned serialization with back-compatibility
+-------------------------------------------------------------------------------
+sFormatBackComp :: SerializationFormat PutM
+sFormatBackComp
+    = sFormat
+    { mkPutter =
+          \b ver mids ->
+              case mids of
+                Just _ ->
+                    if b then S.put ver >> return (\a -> writeSmart sFormatBackComp a mids)
+                         else return $ \a -> writeSmart sFormatBackComp a mids
+                Nothing ->
+                    fail $ noIDListErr "[type not yet known]"
+    , writeRepetition =
+          \lst mids ->
+              case mids of
+                Just allIds ->
+                    do S.put (length lst)
+                       getSmartPutLastKnown sFormatBackComp allIds >>= forM_ lst
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => [a]"
+    , writeMaybe =
+          \m mids ->
+              case mids of
+                Just allIds ->
+                    case m of
+                      Just a ->
+                          S.put True >> smartPutLastKnown sFormatBackComp a allIds
+                      Nothing ->
+                          S.put False
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => Maybe a"
+    }
 
 -------------------------------------------------------------------------------
 -- Versioned serialization
@@ -71,8 +119,8 @@ sFormat :: SerializationFormat PutM
 sFormat
     = SerializationFormat
     { mkPutter =
-          \b ver -> if b then S.put ver >> return (writeSmart sFormat)
-                         else return $ writeSmart sFormat
+          \b ver _ -> if b then S.put ver >> return (\a -> writeSmart sFormat a Nothing)
+                           else return $ \a -> writeSmart sFormat a Nothing
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -81,17 +129,17 @@ sFormat
               else ma
     , withField = id
     , writeRepetition =
-          \lst ->
+          \lst _ ->
               do S.put (length lst)
                  getSmartPut sFormat >>= forM_ lst
     , writeInt = S.put
     , writeChar = S.put
     , writeInteger = S.put
-    , writeString = writeRepetition sFormat
+    , writeString = \s -> writeRepetition sFormat s Nothing
     , writeBool = S.put
     , writeDouble = S.put
     , writeMaybe =
-          \m ->
+          \m _ ->
               case m of
                 Just a ->
                     S.put True >> smartPut sFormat a
@@ -108,24 +156,28 @@ pFormat :: ParseFormat Get
 pFormat
     = ParseFormat
     { mkGetter =
-          \b prevVers ->
+          \b dupVers prevVers ->
               if b 
                  then do v <- liftM Version S.get
-                         case constructGetterFromVersion pFormat v kind of
+                         let v' =
+                                case prevVers of
+                                  Just prev -> Version prev
+                                  Nothing -> v
+                         case constructGetterFromVersion pFormat v' kind of
                            Right getter -> return getter
                            Left msg -> fail msg
                  else either fail return $
-                      constructGetterFromVersion pFormat (Version prevVers) kind
+                      constructGetterFromVersion pFormat (Version dupVers) kind
     , readCons =
         \cons ->
           case cons of
             [] -> noCons
-            [(CInfo _ _ False _, parser)] ->
+            [(CInfo _ _ False _ _, parser)] ->
                 parser
-            [(CInfo _ _ True _, parser)] ->
+            [(CInfo _ _ True _ _, parser)] ->
                 do let conNames = map (cname . fst) cons
                    mismatch "tagged type" (show conNames)
-            (CInfo _ _ True _, _):_ ->
+            (CInfo _ _ True _ _, _):_ ->
                 do let conInds = map (fromIntegral . cindex . fst) cons
                        parsers = map snd cons
                    c <- S.getWord8
@@ -156,21 +208,22 @@ pFormat
 
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
-    , writeRepetition = putListOf (writeSmart sFormatUnvers)
-    , writeString = writeRepetition sFormatUnvers
+    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
+    , writeRepetition =
+          \rep _ -> putListOf (\a -> writeSmart sFormatUnvers a Nothing) rep
+    , writeString = \s -> writeRepetition sFormatUnvers s Nothing
     , writeMaybe =
-          \m ->
+          \m _ ->
               case m of
                 Just a ->
-                    S.put True >> writeSmart sFormatUnvers a
+                    S.put True >> writeSmart sFormatUnvers a Nothing
                 Nothing ->
                     S.put False
     }
 
 pFormatUnvers
     = pFormat
-    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers 
     , readRepetition =
           do n <- S.get
              getSmartGet pFormatUnvers >>= replicateM n

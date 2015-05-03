@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- |The Fail and FailT monad used in the SmartCopy parse formats.
 module Data.SmartCopy.MonadTypesInstances where
 
 ------------------------------------------------------------------------------
@@ -18,39 +19,33 @@ module Data.SmartCopy.MonadTypesInstances where
 ------------------------------------------------------------------------------
 import Control.Applicative
 import Control.Monad.IO.Class
+
 import "mtl" Control.Monad.Identity
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.State
 import "mtl" Control.Monad.Trans (MonadTrans(..))
 import "mtl" Control.Monad.Writer
 
-
+-- |An error handling monad.
 newtype FailT m a = FailT { runFailT :: m (Fail a) }
 
-data Fail a = Fail String
-        | Ok a deriving Show
+-- |Represents values that can be either an error or correct, where the Fail
+-- constructor is used to hold an error message and the Ok constructor is 
+-- used to hold a correct value of type a.
+data Fail a
+    = Fail String
+    | Ok a deriving Show
 
+-- |Takes a Fail and if it holds a correct value returns the value in a monad,
+-- or if it holds an error fails in the monad.
 fromOk :: Monad m => Fail a -> m a
 fromOk (Ok a) = return a
 fromOk (Fail a) = fail a
 
-fromEitherS :: Show a => Either String a -> String
-fromEitherS (Right a) = show a
-fromEitherS (Left msg) = msg
-
-fromEitherM :: Monad m => m (Either String a) -> m a
-fromEitherM ma
-    = do res <- ma
-         case res of
-           Right a -> return a
-           Left msg -> fail msg
-
-eitherFailM :: Monad m => m (Either String a) -> m (Fail a)
-eitherFailM ma
-    = do res <- ma
-         case res of
-           Right a -> return $ Ok a
-           Left msg -> fail msg
+-- |Converts an Either value into a Fail value.
+fromEitherFail :: Either String a ->  Fail a
+fromEitherFail (Left msg) = Fail msg
+fromEitherFail (Right ok) = Ok ok
 
 instance Functor Fail where
     fmap f (Ok a) = Ok $ f a

@@ -27,62 +27,63 @@ import Control.Applicative
 import Control.Monad (liftM2, liftM)
 
 instance SmartCopy a => SmartCopy (SC.Prim a) where
+    identifier = ID "Data.SafeCopy.Prim"
     version = 0
     kind = primitive
     readSmart fmt = liftM SC.Prim $ readSmart fmt
-    writeSmart fmt (SC.Prim a) =
-        writeSmart fmt a
+    writeSmart fmt (SC.Prim a) = writeSmart fmt a
 
 instance SmartCopy Int where
+    identifier = ID "Int"
     readSmart = readInt
-    writeSmart = writeInt
+    writeSmart fmt i _ = writeInt fmt i
 
 instance SmartCopy Int32 where
+    identifier = ID "Int32"
     readSmart fmt = liftM fromIntegral $ readInt fmt
-    writeSmart fmt = writeInt fmt . fromIntegral
+    writeSmart fmt i _ = writeInt fmt $ fromIntegral i
 
 instance SmartCopy Char where
+    identifier = ID "Char"
     readSmart = readChar
-    writeSmart = writeChar
+    writeSmart fmt c _ = writeChar fmt c
 
 instance SmartCopy Double where
+    identifier = ID "Double"
     readSmart = readDouble
-    writeSmart = writeDouble
+    writeSmart fmt d _ = writeDouble fmt d
 
 instance SmartCopy String where
+    identifier = ID "String"
     readSmart = readString
-    writeSmart = writeString
+    writeSmart fmt s _ = writeString fmt s
 
 instance SmartCopy Bool where
+    identifier = ID "Bool"
     readSmart = readBool
-    writeSmart = writeBool
+    writeSmart fmt b _ = writeBool fmt b
 
 instance SmartCopy a => SmartCopy (Maybe a) where
+    identifier = ID "Maybe"
     readSmart = readMaybe
     writeSmart = writeMaybe
 
 instance SmartCopy a => SmartCopy [a] where
+    identifier = ID "List"
     readSmart = readRepetition
     writeSmart = writeRepetition
 
 instance (SmartCopy a, SmartCopy b) => SmartCopy (a, b) where
+    identifier = ID "Tuple"
     readSmart fmt = liftM2 (,) (readSmart fmt) (readSmart fmt)
-    {-
-        = do res1 :: Either String a <- readSmart fmt
-             res2 :: Either String b <- readSmart fmt
-             case res1 of
-               Right a1 ->
-                   case res2 of
-                     Right a2 -> return (a1, a2)
-                     Left msg -> fail msg
-               Left msg -> fail msg
-               -}
-    writeSmart fmt (a, b) = writeSmart fmt a >> writeSmart fmt b
+    writeSmart fmt (a, b) allIds = writeSmart fmt a allIds >> writeSmart fmt b allIds
 
 instance SmartCopy BS.ByteString where
+    identifier = ID "Data.ByteString"
     readSmart = readBS
-    writeSmart = writeBS
+    writeSmart fmt bs _ = writeBS fmt bs
 
 instance SmartCopy T.Text where
+    identifier = ID "Data.Text"
     readSmart = readText
-    writeSmart = writeText
+    writeSmart fmt t _ = writeText fmt t

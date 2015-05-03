@@ -11,7 +11,6 @@ module Tests.TestInstances where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
-
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
@@ -165,14 +164,12 @@ SC.deriveSafeCopy 1 'SC.base ''MaybeTestX
 SC.deriveSafeCopy 1 'SC.base ''Easy
 SC.deriveSafeCopy 1 'SC.base ''SumTest
 
-----------------------
--- SmartCopy instances
-----------------------
 
 instance SmartCopy MaybeTestX where
+    identifier = ID "MaybeTestXV1"
     version = 1
     readSmart fmt =
-        readCons fmt [(CInfo "MaybeTestX" (NF 3) False 0 , readFields)]
+        readCons fmt [(CInfo "MaybeTestX" (NF 3) False 0 "MaybeTestXV1", readFields)]
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
                               get3 <- getSmartGet fmt
@@ -180,49 +177,79 @@ instance SmartCopy MaybeTestX where
                               b <- readField fmt get2
                               l2 <- readField fmt get3
                               return $ MaybeTestX l1 b l2
-    writeSmart fmt (MaybeTestX l1 b l2) =
-        withCons fmt (CInfo "MaybeTestX" (NF 3) False 0) withFields
-        where withFields = do put1 <- getSmartPut fmt
-                              put2 <- getSmartPut fmt
-                              put3 <- getSmartPut fmt
-                              withField fmt $ put1 l1
-                              withField fmt $ put2 b
-                              withField fmt $ put3 l2
+    writeSmart fmt (MaybeTestX l1 b l2) mIds =
+        withCons fmt (CInfo "MaybeTestX" (NF 3) False 0 "MaybeTestXV1") withFields
+        where withFields =
+                  case mIds of
+                    Just allIds ->
+                        do put1 <- getSmartPutLastKnown fmt allIds
+                           put2 <- getSmartPutLastKnown fmt allIds
+                           put3 <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ put1 l1
+                           withField fmt $ put2 b
+                           withField fmt $ put3 l2
+                    Nothing ->
+                        do put1 <- getSmartPut fmt
+                           put2 <- getSmartPut fmt
+                           put3 <- getSmartPut fmt
+                           withField fmt $ put1 l1
+                           withField fmt $ put2 b
+                           withField fmt $ put3 l2
 
 instance SmartCopy MaybeTest where
+    identifier = ID "MaybeTestV1"
     version = 1
     readSmart fmt =
-        readCons fmt [(CInfo "MaybeTest" (NF 2) False 0 , readFields)]
+        readCons fmt [(CInfo "MaybeTest" (NF 2) False 0 "MaybeTestV1", readFields)]
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
                               i <- readField fmt get1
                               m <- readField fmt get2
                               return $ MaybeTest i m
-    writeSmart fmt (MaybeTest i m) =
-        withCons fmt (CInfo "MaybeTest" (NF 2) False 0) withFields
-        where withFields = do put1 <- getSmartPut fmt
-                              put2 <- getSmartPut fmt
-                              withField fmt $ put1 i
-                              withField fmt $ put2 m
+    writeSmart fmt (MaybeTest i m) mIds =
+        withCons fmt (CInfo "MaybeTest" (NF 2) False 0 "MaybeTestV1") withFields
+        where withFields =
+                  case mIds of
+                    Just allIds ->
+                        do put1 <- getSmartPutLastKnown fmt allIds
+                           put2 <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ put1 i
+                           withField fmt $ put2 m
+                    Nothing ->
+                        do put1 <- getSmartPut fmt
+                           put2 <- getSmartPut fmt
+                           withField fmt $ put1 i
+                           withField fmt $ put2 m
            
 instance SmartCopy BoolTest where
+    identifier = ID "BoolTestV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "BoolTest" (NF 1) False 0 , readBool)]
+        readCons fmt [(CInfo "BoolTest" (NF 1) False 0 "BoolTestV1", readBool)]
         where readBool = do getter <- getSmartGet fmt
                             b :: Bool <- readField fmt getter
                             return $ BoolTest b
-    writeSmart fmt x@(BoolTest b) =
-           withCons fmt (CInfo "BoolTest" (NF 1) False 0) putB
-           where putB = do putter <- getSmartPut fmt
+    writeSmart fmt x@(BoolTest b) mIds =
+           withCons fmt (CInfo "BoolTest" (NF 1) False 0 "BoolTestV1") putB
+           where putB =
+                    case mIds of
+                      Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter b)
+                      Nothing ->
+                        do putter <- getSmartPut fmt
                            withField fmt (putter b)
 
 instance SmartCopy BoolTestLong where
+    identifier = ID "BoolTestLongV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0 , readBT)]
+        readCons fmt
+            [ (CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0 $
+              unId (identifier :: Identifier BoolTestLong)
+            , readBT) ]
         where readBT = do get1 <- getSmartGet fmt
                           get2 <- getSmartGet fmt
                           get3 <- getSmartGet fmt
@@ -230,91 +257,147 @@ instance SmartCopy BoolTestLong where
                           b <- readField fmt get2
                           slist <- readField fmt get3
                           return $ BoolTestLong blist b slist
-    writeSmart fmt x@(BoolTestLong blist b slist) =
-        withCons fmt (CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0) $
-            do put1 <- getSmartPut fmt
-               put2 <- getSmartPut fmt
-               put3 <- getSmartPut fmt
-               withField fmt $ put1 blist
-               withField fmt $ put2 b
-               withField fmt $ put3 slist
+    writeSmart fmt x@(BoolTestLong blist b slist) mIds =
+        withCons fmt
+            (CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0 $
+            unId (identifier :: Identifier BoolTestLong)) $ writeFields
+        where writeFields =
+                case mIds of
+                  Just allIds ->
+                      do put1 <- getSmartPutLastKnown fmt allIds
+                         put2 <- getSmartPutLastKnown fmt allIds
+                         put3 <- getSmartPutLastKnown fmt allIds
+                         withField fmt $ put1 blist
+                         withField fmt $ put2 b
+                         withField fmt $ put3 slist
+                  Nothing ->
+                      do put1 <- getSmartPut fmt
+                         put2 <- getSmartPut fmt
+                         put3 <- getSmartPut fmt
+                         withField fmt $ put1 blist
+                         withField fmt $ put2 b
+                         withField fmt $ put3 slist
 
 instance SmartCopy StringTest where
+    identifier = ID "StringTestV1"
     version = 1
     kind = base 
     readSmart fmt =
-        readCons fmt [(CInfo "StringTest" (NF 1) False 0 , readString)]
+        readCons fmt
+            [ (CInfo "StringTest" (NF 1) False 0 (unId (identifier :: Identifier StringTest))
+            , readString) ]
         where readString = do getter <- getSmartGet fmt
                               s :: String <- readField fmt getter
                               return $ StringTest s
-    writeSmart fmt x@(StringTest s) =
-        withCons fmt (CInfo "StringTest" (NF 1) False 0) putStr
-        where putStr = do putter <- getSmartPut fmt
-                          withField fmt (putter s)
+    writeSmart fmt x@(StringTest s) mIds =
+        withCons fmt
+            (CInfo "StringTest" (NF 1) False 0 (unId (identifier :: Identifier StringTest))) putStr
+        where putStr =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter s)
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt (putter s)
 
 instance SmartCopy StringTest2 where
+    identifier = ID "StringTest2V2"
     version = 1
     readSmart fmt =
-        readCons fmt [(CInfo "StringTest2" (NF 2) False 0 , readFields)]
+        readCons fmt
+            [ (CInfo "StringTest2" (NF 2) False 0 (unId (identifier :: Identifier StringTest2))
+            , readFields) ]
         where readFields = do get1 <- getSmartGet fmt
                               get2 <- getSmartGet fmt
                               s :: String <- readField fmt get1
                               ints <- readField fmt get2
                               return $ StringTest2 s ints
-    writeSmart fmt x@(StringTest2 s ints) =
-        withCons fmt (CInfo "StringTest2" (NF 2) False 0) writeFields
-        where writeFields = do put1 <- getSmartPut fmt
-                               put2 <- getSmartPut fmt
-                               withField fmt $ put1 s
-                               withField fmt $ put2 ints
+    writeSmart fmt x@(StringTest2 s ints) mIds =
+        withCons fmt
+            (CInfo "StringTest2" (NF 2) False 0 $ unId (identifier :: Identifier StringTest2))
+            writeFields
+        where writeFields =
+                  case mIds of
+                    Just allIds ->
+                        do put1 <- getSmartPutLastKnown fmt allIds
+                           put2 <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ put1 s
+                           withField fmt $ put2 ints
+                    Nothing ->
+                        do put1 <- getSmartPut fmt
+                           put2 <- getSmartPut fmt
+                           withField fmt $ put1 s
+                           withField fmt $ put2 ints
                                
-
 instance SmartCopy ArrType where
+    identifier = ID "ArrTypeV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "ArrType" (NF 1) False 0 , readInts)]
+        readCons fmt [(CInfo "ArrType" (NF 1) False 0 "ArrTypeV1", readInts)]
         where readInts = do getter <- getSmartGet fmt
                             ints <- readField fmt getter
                             return $ ArrType ints
 
-    writeSmart fmt x@(ArrType ints) =
-        withCons fmt (CInfo "ArrType" (NF 1) False 0) writePrimList
-        where writePrimList = do putter <- getSmartPut fmt
-                                 withField fmt $ putter ints
+    writeSmart fmt x@(ArrType ints) mIds =
+        withCons fmt (CInfo "ArrType" (NF 1) False 0 "ArrTypeV1") writePrimList
+        where writePrimList =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ putter ints
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt $ putter ints
 
 instance SmartCopy ArrTypeBar where
+    identifier = ID "ArrTypeBarV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "ArrTypeBar" (NF 1) False 0 , readBars)]
+        readCons fmt [(CInfo "ArrTypeBar" (NF 1) False 0 "ArrTypeBarV1", readBars)]
         where readBars = do getter <- getSmartGet fmt
                             bars <- readField fmt getter
                             return $ ArrTypeBar bars
 
-    writeSmart fmt x@(ArrTypeBar bars) =
-        withCons fmt (CInfo "ArrTypeBar" (NF 1) False 0) writeBarList
-        where writeBarList = do putter <- getSmartPut fmt
-                                withField fmt (putter bars)
+    writeSmart fmt x@(ArrTypeBar bars) mIds =
+        withCons fmt (CInfo "ArrTypeBar" (NF 1) False 0 "ArrTypeBarV1") writeBarList
+        where writeBarList =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter bars)
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt (putter bars)
 
 instance SmartCopy ArrTypeFooBar where
+    identifier = ID "ArrTypeFooBarV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "ArrTypeFooBar" (NF 1) False 0 , readFbars)]
+        readCons fmt [(CInfo "ArrTypeFooBar" (NF 1) False 0 "ArrTypeFooBarV1", readFbars)]
         where readFbars = do getter <- getSmartGet fmt
                              fbars <- readField fmt getter
                              return $ ArrTypeFooBar fbars
-    writeSmart fmt x@(ArrTypeFooBar fbars) =
-        withCons fmt (CInfo "ArrTypeFooBar" (NF 1) False 0) writeFBList
-        where writeFBList = do putter <- getSmartPut fmt
-                               withField fmt (putter fbars)
+    writeSmart fmt x@(ArrTypeFooBar fbars) mIds =
+        withCons fmt (CInfo "ArrTypeFooBar" (NF 1) False 0 "ArrTypeFooBarV1") writeFBList
+        where writeFBList =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter fbars)
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt (putter fbars)
 
 instance SmartCopy Foo where
+    identifier = ID "FooV1"
     version = 1
     kind = base
     readSmart fmt =
-      readCons fmt [(CInfo "Foo" (NF 2) False 0 , readFoo)]
+      readCons fmt [(CInfo "Foo" (NF 2) False 0 "FooV1", readFoo)]
       where readFoo =
                  do get1 <- getSmartGet fmt
                     get2 <- getSmartGet fmt
@@ -322,19 +405,28 @@ instance SmartCopy Foo where
                     bar <- readField fmt get2
                     return $ Foo int bar
 
-    writeSmart fmt x@(Foo i bar) =
-        withCons fmt (CInfo "Foo" (NF 2) False 0) writeFields
-        where writeFields = do put1 <- getSmartPut fmt
-                               put2 <- getSmartPut fmt
-                               withField fmt $ put1 i
-                               withField fmt $ put2 bar
+    writeSmart fmt x@(Foo i bar) mIds =
+        withCons fmt (CInfo "Foo" (NF 2) False 0 "FooV1") writeFields
+        where writeFields =
+                  case mIds of
+                    Just allIds ->
+                        do put1 <- getSmartPutLastKnown fmt allIds
+                           put2 <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ put1 i
+                           withField fmt $ put2 bar
+                    Nothing ->
+                        do put1 <- getSmartPut fmt
+                           put2 <- getSmartPut fmt
+                           withField fmt $ put1 i
+                           withField fmt $ put2 bar
 
 instance SmartCopy FooBar where
+    identifier = ID "FooBarV1"
     version = 1
     kind = base
     readSmart fmt =
-      readCons fmt [(CInfo "Foo0" (NF 2) True 0 , readFoo0),
-                      (CInfo "Bar0" (LF ["value", "foobar"]) True 1 , readFoo1)]
+      readCons fmt [(CInfo "Foo0" (NF 2) True 0 "FooBarV1", readFoo0),
+                    (CInfo "Bar0" (LF ["value", "foobar"]) True 1 "FooBarV1", readFoo1)]
       where
         readFoo0 =
                do get1 <- getSmartGet fmt
@@ -349,141 +441,218 @@ instance SmartCopy FooBar where
                   foobar <- readField fmt get2
                   return $ Bar0 val foobar
 
-    writeSmart fmt x@(Foo0 bool double) =
-        withCons fmt (CInfo "Foo0" (NF 2) True 0) writeFields
+    writeSmart fmt x@(Foo0 bool double) mIds =
+        withCons fmt (CInfo "Foo0" (NF 2) True 0 "FooBarV1") writeFields
         where writeFields =
-                do put1 <- getSmartPut fmt
-                   put2 <- getSmartPut fmt
-                   withField fmt $ put1 bool
-                   withField fmt $ put2 double
-    writeSmart fmt x@(Bar0 int foobar) =
-        withCons fmt (CInfo "Bar0" (LF ["value", "foobar"]) True 1) writeFields
+                case mIds of
+                  Just allIds ->
+                      do put1 <- getSmartPutLastKnown fmt allIds
+                         put2 <- getSmartPutLastKnown fmt allIds
+                         withField fmt $ put1 bool
+                         withField fmt $ put2 double
+                  Nothing ->
+                      do put1 <- getSmartPut fmt
+                         put2 <- getSmartPut fmt
+                         withField fmt $ put1 bool
+                         withField fmt $ put2 double
+    writeSmart fmt x@(Bar0 int foobar) mIds =
+        withCons fmt (CInfo "Bar0" (LF ["value", "foobar"]) True 1 "FooBarV1") writeFields
         where writeFields =
-                do put1 <- getSmartPut fmt
-                   put2 <- getSmartPut fmt
-                   withField fmt $ put1 int
-                   withField fmt $ put2 foobar
+                  case mIds of 
+                    Just allIds ->
+                        do put1 <- getSmartPutLastKnown fmt allIds
+                           put2 <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ put1 int
+                           withField fmt $ put2 foobar
+                    Nothing ->
+                        do put1 <- getSmartPut fmt
+                           put2 <- getSmartPut fmt
+                           withField fmt $ put1 int
+                           withField fmt $ put2 foobar
 
 instance SmartCopy MyDouble where
+    identifier = ID "MyDoubleV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "MyDouble" (NF 1) False 0 , readMyDouble)]
+        readCons fmt [(CInfo "MyDouble" (NF 1) False 0 "MyDoubleV1", readMyDouble)]
         where readMyDouble = do getter <- getSmartGet fmt
                                 d <- readField fmt getter
                                 return $ MyDouble d
-    writeSmart fmt x@(MyDouble d) =
-        withCons fmt (CInfo "MyDouble" (NF 1) False 0) writeD
-        where writeD = do putter <- getSmartPut fmt
-                          withField fmt (putter d)
+    writeSmart fmt x@(MyDouble d) mIds =
+        withCons fmt (CInfo "MyDouble" (NF 1) False 0 "MyDoubleV1") writeD
+        where writeD =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter d)
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt (putter d)
 
 instance SmartCopy MyBool where
+    identifier = ID "MyBoolV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "MyTrue" Empty True 1 , return MyTrue)
-                     ,(CInfo "MyFalse" Empty True 0 , return MyFalse)]
-    writeSmart fmt MyTrue =
-        withCons fmt (CInfo "MyTrue" Empty True 1) $ return ()
-    writeSmart fmt MyFalse =
-        withCons fmt (CInfo "MyFalse" Empty True 0) $ return ()
+        readCons fmt [(CInfo "MyTrue" Empty True 1 "MyBoolV1", return MyTrue)
+                     ,(CInfo "MyFalse" Empty True 0 "MyBoolV1", return MyFalse)]
+    writeSmart fmt MyTrue _ =
+        withCons fmt (CInfo "MyTrue" Empty True 1 "MyBoolV1") $ return ()
+    writeSmart fmt MyFalse _ =
+        withCons fmt (CInfo "MyFalse" Empty True 0 "MyBoolV1") $ return ()
 
+-- Supports back-compatibility
 instance SmartCopy Easy where
+    identifier = ID "EasyV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "Easy" (NF 1) False 0 , readEasy)]
+        readCons fmt
+            [ (CInfo "Easy" (NF 1) False 0 (unId (identifier :: Identifier Easy))
+            , readEasy)]
         where
           readEasy =
               do getter <- getSmartGet fmt
                  f <- readField fmt getter
                  return $ Easy f
-    writeSmart fmt x@(Easy a) =
-        withCons fmt (CInfo "Easy" (NF 1) False 0) $ withField fmt writeInt
-        where writeInt = do putter <- getSmartPut fmt
+    writeSmart fmt x@(Easy a) mIds =
+        do let writeFields =
+                 case mIds of
+                   Nothing ->
+                       withField fmt $
+                         do putter <- getSmartPut fmt
                             putter a
+                   Just allIds ->
+                       withField fmt $
+                         do putter <- getSmartPutLastKnown fmt allIds
+                            putter a
+           withCons fmt
+               (CInfo "Easy" (NF 1) False 0 $ unId (identifier :: Identifier Easy)) writeFields
 
 instance SmartCopy Bla where
+    identifier = ID "BlaV1"
     version = 1
     kind = base
     readSmart fmt =
-        readCons fmt [(CInfo "Bla" Empty False 0 , return Bla)]
-    writeSmart fmt bla =
-        withCons fmt (CInfo "Bla" Empty False 0) (return ())
+        readCons fmt
+            [ (CInfo "Bla" Empty False 0 (unId (identifier :: Identifier Bla))
+            , return Bla)]
+    writeSmart fmt bla _ =
+        withCons fmt (CInfo "Bla" Empty False 0 (unId (identifier :: Identifier Bla))) (return ())
 
 instance SmartCopy Bar where
+    identifier = ID "BarV1"
     version = 1
     kind = base
-    writeSmart fmt (BarLeft) =
-        withCons fmt (CInfo "BarLeft" (NF 0) True 0) (return ())
-    writeSmart fmt x@(BarRight foo) =
-        withCons fmt (CInfo "BarRight" (NF 1) True 1) writeFoo
-        where writeFoo = do putter <- getSmartPut fmt
-                            withField fmt $ putter foo
+    writeSmart fmt x@(BarLeft) _ =
+        withCons fmt (CInfo "BarLeft" (NF 0) True 0 $
+        unId (identifier :: Identifier Bar)) (return ())
+    writeSmart fmt x@(BarRight foo) mIds =
+        withCons fmt (CInfo "BarRight" (NF 1) True 1 $
+        unId (identifier :: Identifier Bar)) writeFoo
+        where writeFoo =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ putter foo
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt $ putter foo
     readSmart fmt =
-        readCons fmt [ (CInfo "BarLeft" (NF 0) True 0 , readBarLeft)
-                       , (CInfo "BarRight" (NF 1) True 1 , readBarRight)]
+        readCons fmt [ ( CInfo "BarLeft" (NF 0) True 0 (unId (identifier :: Identifier Bar))
+                       , readBarLeft)
+                     , ( CInfo "BarRight" (NF 1) True 1 (unId (identifier :: Identifier Bar))
+                       , readBarRight )]
         where readBarLeft = return BarLeft
               readBarRight = do getter <- getSmartGet fmt
                                 f <- readField fmt getter
                                 return $ BarRight f 
 
 instance SmartCopy Some2 where
+    identifier = ID "Some2V1"
     version = 1
     kind = base
-    writeSmart fmt x@(Some2 spam') =
-        withCons fmt (CInfo "Some2" (NF 1) False 0) writeSpam
-        where writeSpam = do putter <- getSmartPut fmt
-                             withField fmt (putter spam')
+    writeSmart fmt x@(Some2 spam') mIds =
+        withCons fmt (CInfo "Some2" (NF 1) False 0 $
+        unId (identifier :: Identifier Some2)) writeSpam
+        where writeSpam =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt (putter spam')
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt (putter spam')
     readSmart fmt =
-        readCons fmt [(CInfo "Some2" (NF 1) False 0 , readSome2)]
+        readCons fmt [(CInfo "Some2" (NF 1) False 0 (unId (identifier :: Identifier Some2))
+                     , readSome2)]
         where readSome2 = do getSpam <- getSmartGet fmt
                              spam <- readField fmt getSpam
                              return $ Some2 spam
 
 instance SmartCopy Some where
+    identifier = ID "SomeV1"
     version = 1
     kind = base
-    writeSmart fmt x@(Some spam int) =
-        withCons fmt (CInfo "Some" (NF 2) False 0) fields
-           where fields = do putSpam <- getSmartPut fmt
-                             putInt <- getSmartPut fmt
-                             withField fmt (putSpam spam)
-                             withField fmt (putInt int)
+    writeSmart fmt x@(Some spam int) mIds =
+        withCons fmt (CInfo "Some" (NF 2) False 0 (unId (identifier :: Identifier Some))) fields
+           where fields =
+                     do putSpam <-
+                          case mIds of
+                            Nothing -> getSmartPut fmt
+                            Just allIds -> getSmartPutLastKnown fmt allIds
+                        putInt <-
+                            case mIds of
+                              Nothing -> getSmartPut fmt
+                              Just allIds -> getSmartPutLastKnown fmt allIds
+                        withField fmt (putSpam spam)
+                        withField fmt (putInt int)
     readSmart fmt =
-        readCons fmt [(CInfo "Some" (NF 2) False 0 , readSome)]
-        where readSome = do getSpam <- getSmartGet fmt
-                            getInt <- getSmartGet fmt
-                            spam <- readField fmt getSpam
-                            int <- readField fmt getInt
-                            return $ Some spam int
+        readCons fmt [(CInfo "Some" (NF 2) False 0 (unId (identifier :: Identifier Some))
+                     , readSome)]
+        where readSome =
+                  do getSpam <- getSmartGet fmt
+                     getInt <- getSmartGet fmt
+                     spam <- readField fmt getSpam
+                     int <- readField fmt getInt
+                     return $ Some spam int
 
                              
 instance SmartCopy Spam where
+    identifier = ID "SpamV1"
     version = 1
     kind = base
-    writeSmart fmt x@(Spam int) =
-        withCons fmt (CInfo "Spam" (NF 1) False 0) writeInt
-        where writeInt = do putter <- getSmartPut fmt
-                            withField fmt (putter int)
+    writeSmart fmt x@(Spam int) mIds =
+        withCons fmt (CInfo "Spam" (NF 1) False 0 "SpamV1") writeInt
+        where writeInt =
+                  do putter <-
+                         case mIds of
+                           Nothing -> getSmartPut fmt
+                           Just allIds -> getSmartPutLastKnown fmt allIds
+                     withField fmt (putter int)
     readSmart fmt =
-        readCons fmt [(CInfo "Spam" (NF 1) False 0 , readSpam)]
+        readCons fmt [(CInfo "Spam" (NF 1) False 0 "SpamV1", readSpam)]
         where readSpam =
                 do getI <- getSmartGet fmt
                    i <- readField fmt getI
                    return $ Spam i
 
 instance SmartCopy Spam2 where
+    identifier = ID "Spam2V1"
     version = 1
     kind = base
-    writeSmart fmt x@(Spam2 int1 int2) =
-        withCons fmt (CInfo "Spam2" (NF 2) False 0) writeFields
+    writeSmart fmt x@(Spam2 int1 int2) mIds =
+        withCons fmt (CInfo "Spam2" (NF 2) False 0 "Spam2V1") writeFields
         where writeFields = 
-               do putter <- getSmartPut fmt
+               do putter <-
+                      case mIds of
+                        Just allIds -> getSmartPutLastKnown fmt allIds
+                        Nothing -> getSmartPut fmt
                   withField fmt (putter int1)
                   withField fmt (putter int2)
     readSmart fmt =
-        readCons fmt [(CInfo "Spam2" (NF 2) False 0 , readSpam2)]
+        readCons fmt [(CInfo "Spam2" (NF 2) False 0 "Spam2V1", readSpam2)]
         where readSpam2 =
                 do getter <- getSmartGet fmt
                    i1 <- readField fmt getter
@@ -491,22 +660,37 @@ instance SmartCopy Spam2 where
                    return $ Spam2 i1 i2
 
 instance SmartCopy SumTest where
+    identifier = ID "SumTestV1"
     version = 1
-    writeSmart fmt x@SumTest1 =
-        withCons fmt (CInfo "SumTest1" (NF 0) True 0) $ return ()
-    writeSmart fmt x@(SumTest2 int) =
-        withCons fmt (CInfo "SumTest2" (NF 1) True 1) writeFields
-        where writeFields = do putter <- getSmartPut fmt
-                               withField fmt $ putter int
-    writeSmart fmt x@(SumTest3 int1 int2) =
-        withCons fmt (CInfo "SumTest3" (NF 2) True 2) writeFields
-        where writeFields = do putter <- getSmartPut fmt
-                               withField fmt $ putter int1
-                               withField fmt $ putter int2
+    writeSmart fmt x@SumTest1 _ =
+        withCons fmt (CInfo "SumTest1" (NF 0) True 0 "SumTestV1") $ return ()
+    writeSmart fmt x@(SumTest2 int) mIds =
+        withCons fmt (CInfo "SumTest2" (NF 1) True 1 "SumTestV1") writeFields
+        where writeFields =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ putter int
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt $ putter int
+    writeSmart fmt x@(SumTest3 int1 int2) mIds =
+        withCons fmt (CInfo "SumTest3" (NF 2) True 2 "SumTestV1") writeFields
+        where writeFields =
+                  case mIds of
+                    Just allIds ->
+                        do putter <- getSmartPutLastKnown fmt allIds
+                           withField fmt $ putter int1
+                           withField fmt $ putter int2
+                    Nothing ->
+                        do putter <- getSmartPut fmt
+                           withField fmt $ putter int1
+                           withField fmt $ putter int2
+                        
     readSmart fmt =
-        readCons fmt [(CInfo "SumTest1" (NF 0) True 0 , readSum1)
-                     ,(CInfo "SumTest2" (NF 1) True 1 , readSum2)
-                     ,(CInfo "SumTest3" (NF 2) True 2 , readSum3)
+        readCons fmt [(CInfo "SumTest1" (NF 0) True 0 "SumTestV1", readSum1)
+                     ,(CInfo "SumTest2" (NF 1) True 1 "SumTestV1", readSum2)
+                     ,(CInfo "SumTest3" (NF 2) True 2 "SumTestV1", readSum3)
                      ]
         where readSum1 = return SumTest1
               readSum2 =
@@ -522,6 +706,8 @@ instance SmartCopy SumTest where
 -------------------------------------------------------------------------------
 -- Examples
 -------------------------------------------------------------------------------
+
+easy = Easy 42
 
 sumtest1 = SumTest2 10
 sumtest2 = SumTest3 10 5
@@ -562,13 +748,13 @@ v8 :: ArrTypeFooBar
 v8 = ArrTypeFooBar [v3,v4]
 
 some1 :: Some
-some1 = Some (Spam 1) 2
+some1 = Some (Spam 1) 0
 
 some2 :: Some2
 some2 = Some2 (Spam2 1 2)
 
 spam :: Spam2
-spam = Spam2 1 2
+spam = Spam2 1 0
 
 string :: StringTest
 string = StringTest "Test"
@@ -626,8 +812,8 @@ s7 = "ArrTypeFooBar ([Foo0 (MyFalse) (MyDouble (32.1)),Bar0 (3) (Foo0 (MyTrue) (
 
 ---- Xml-like encoding
 
-xml1 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Easy><0>42</0></Easy>"
-xml2 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Foo0><0><MyTrue/></0><1><MyDouble><0>42.0</0></MyDouble></1></Foo0>"
+xml1 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Easy><Field0>42</Field0></Easy>"
+xml2 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Foo0><Field0><MyTrue/></Field0><Field1><MyDouble><Field0>42.0</Field0></MyDouble></Field1></Foo0>"
 xml3 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Bla/>"
-xml4 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some><0><Spam><0>1</0></Spam></0><1>2</1></Some>"
-xml5 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some2><0><Spam2><0>1</0><1>2</1></Spam2></0></Some2>"
+xml4 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some><Field0><Spam><Field0>1</Field0></Spam></Field0><Field1>2</Field1></Some>"
+xml5 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Some2><Field0><Spam2><Field0>1</Field0><Field1>2</Field1></Spam2></Field0></Some2>"

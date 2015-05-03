@@ -1,7 +1,12 @@
 name:                SmartCopy
 version:             0.1.0.0
 synopsis:            Format-generic serialization and deserialization
--- description:         
+description:         SmartCopy provides an interface for implementing various
+                     (de-)serialization formats and comes with implementations
+                     of JSON, Binary, XML and String formats.
+                     Data.SafeCopy-style version control is supported and extended
+                     with back-migration which can be useful in distributed system
+                     use-cases.
 license:             GPL-3
 license-file:        LICENSE
 author:              Ursula Nothdurft

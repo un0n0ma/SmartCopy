@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module Tests where
+module Tests.Tests where
 
 -------------------------------------------------------------------------------
 -- LOCAL
@@ -24,7 +24,6 @@ import Data.Scientific
 import Data.SmartCopy
 import System.Environment
 import Test.HUnit
-import Test.QuickCheck
 import Hexdump
 
 import qualified Data.ByteString as BS
@@ -37,28 +36,38 @@ import qualified Data.SmartCopy.Formats.JSON as J
                  , parseUnvers
                  , serializeSmart
                  , parseSmart
+                 , serializeLastKnown
+                 , parseLastKnown
                  )
 import qualified Data.SmartCopy.Formats.SafeCopy as SMC
                  ( serializeUnvers
                  , parseUnvers
                  , serializeSmart
                  , parseSmart
+                 , serializeLastKnown
                  )
 import qualified Data.SmartCopy.Formats.String as S
                  ( serializeUnvers
                  , parseUnvers
                  , serializeSmart
                  , parseSmart
+                 , serializeLastKnown
+                 , parseLastKnown
                  )
 import qualified Data.SmartCopy.Formats.XmlLike as X
                  ( serializeUnvers
                  , parseUnvers
                  , serializeSmart
+                 , serializeLastKnown
+                 , parseLastKnown
                  , parseSmart
+                 , fromXmlString
                  )
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Aeson as Json
+import qualified Text.XML as Xml
+
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
@@ -78,15 +87,31 @@ mkSerParseTest dtype writeF parseF s =
        let pResult = pres `asTypeOf` dtype
        assertEqual (spTestMsg s) dtype pResult
 
+mkSerParseFailure dtype writeF parseF s =
+    do let sResult = writeF dtype
+       pres <- fromOk (parseF sResult)
+       let pResult = pres `asTypeOf` dtype
+       assertBool (spTestMsg s) (dtype /= pResult)
+
 mkParseSerTest ser parseF writeF s =
     do pResult <- fromOk (parseF ser)
        let sResult = writeF pResult
        assertEqual (psTestMsg s) ser sResult
 
+mkParseSerFailure ser parseF writeF s =
+    do pResult <- fromOk (parseF ser)
+       let sResult = writeF pResult
+       assertBool (psTestMsg s) (ser /= sResult)
+
 mkCompSerTest dtype writeF1 writeF2 b s =
     do let sResult1 = writeF1 dtype `asTypeOf` b
            sResult2 = writeF2 dtype `asTypeOf` b
        assertEqual (compTestMsg s) sResult1 sResult2
+
+mkCompSerFailure dtype writeF1 writeF2 b s =
+    do let sResult1 = writeF1 dtype `asTypeOf` b
+           sResult2 = writeF2 dtype `asTypeOf` b
+       assertBool s (sResult1 /= sResult2)
 
 mkGenericParseTest val1 val2 parseF =
     do pres1 <- fromOk $ parseF val1
@@ -102,6 +127,8 @@ compareParseAeson val a =
 spTestMsg s = "Serializing/parsing: " ++ s ++ "."
 psTestMsg s = "Parsing/serializing: " ++ s ++ "."
 compTestMsg s = "Comparing SmartCopy-serialized datatypes with " ++ s ++ "."
+
+msg a = "Failure: " ++ a
 
 -------------------------------------------------------------------------------
 -- JSON
@@ -139,6 +166,7 @@ testsJSONVers
              , mkSerParseTest (T.pack "Text") J.serializeSmart J.parseSmart s
              , mkSerParseTest TestV2.easy J.serializeSmart J.parseSmart s
              , mkSerParseTest TestV2.some J.serializeSmart J.parseSmart s
+             , mkSerParseTest TestV2.easy' J.serializeSmart J.parseSmart s
              , mkParseSerTest Test.js1 (J.parseSmart :: Json.Value -> Fail Test.MyDouble) 
                                        J.serializeSmart s
              ]
@@ -175,6 +203,7 @@ testsJSONUnvers
              , mkSerParseTest (42 :: Int) J.serializeUnvers J.parseUnvers s
              , mkSerParseTest TestV2.easy J.serializeUnvers J.parseUnvers s
              , mkSerParseTest TestV2.some J.serializeUnvers J.parseUnvers s
+             , mkSerParseTest TestV2.easy' J.serializeUnvers J.parseUnvers s
              , mkParseSerTest Test.js2 (J.parseUnvers :: Json.Value -> Fail Test.MyDouble)
                                       J.serializeUnvers s
              , mkParseSerTest Test.js3 (J.parseUnvers :: Json.Value -> Fail Test.FooBar)
@@ -253,6 +282,7 @@ testsStringUnvers
              , mkSerParseTest (42 :: Int) S.serializeUnvers S.parseUnvers s
              , mkSerParseTest TestV2.easy S.serializeUnvers S.parseUnvers s
              , mkSerParseTest TestV2.some S.serializeUnvers S.parseUnvers s
+             , mkSerParseTest TestV2.easy' S.serializeUnvers S.parseUnvers s
              , mkParseSerTest Test.s1 (S.parseUnvers :: String -> Fail Test.Easy)
                                       S.serializeUnvers s
              , mkParseSerTest Test.s2 (S.parseUnvers :: String -> Fail Test.FooBar)
@@ -300,6 +330,7 @@ testsStringVers
              , mkSerParseTest ([] :: [String]) S.serializeSmart S.parseSmart s
              , mkSerParseTest TestV2.easy S.serializeSmart S.parseSmart s
              , mkSerParseTest TestV2.some S.serializeSmart S.parseSmart s
+             , mkSerParseTest TestV2.easy' S.serializeSmart S.parseSmart s
              ]
 
 -------------------------------------------------------------------------------
@@ -340,6 +371,7 @@ testsXmlVers
              , mkSerParseTest True X.serializeSmart X.parseSmart s
              , mkSerParseTest TestV2.easy X.serializeSmart X.parseSmart s
              , mkSerParseTest TestV2.some X.serializeSmart X.parseSmart s
+             , mkSerParseTest TestV2.easy' X.serializeSmart X.parseSmart s
              ]
 
 testsXmlUnvers
@@ -373,16 +405,22 @@ testsXmlUnvers
              , mkSerParseTest True X.serializeUnvers X.parseUnvers s
              , mkSerParseTest TestV2.easy X.serializeUnvers X.parseUnvers s
              , mkSerParseTest TestV2.some X.serializeUnvers X.parseUnvers s
-             , mkParseSerTest Test.xml1 (X.parseUnvers :: String -> Fail Test.Easy)
-                                      X.serializeUnvers s
-             , mkParseSerTest Test.xml2 (X.parseUnvers :: String -> Fail Test.FooBar)
-                                      X.serializeUnvers s
-             , mkParseSerTest Test.xml3 (X.parseUnvers :: String -> Fail Test.Bla)
-                                      X.serializeUnvers s
-             , mkParseSerTest Test.xml4 (X.parseUnvers :: String -> Fail Test.Some)
-                                      X.serializeUnvers s
-             , mkParseSerTest Test.xml5 (X.parseUnvers :: String -> Fail Test.Some2)
-                                      X.serializeUnvers s
+             , mkSerParseTest TestV2.easy' X.serializeUnvers X.parseUnvers s
+             , mkParseSerTest (X.fromXmlString Test.xml1)
+                   (X.parseUnvers :: Xml.Element -> Fail Test.Easy)
+                   X.serializeUnvers s
+             , mkParseSerTest (X.fromXmlString Test.xml2)
+                   (X.parseUnvers :: Xml.Element -> Fail Test.FooBar)
+                   X.serializeUnvers s
+             , mkParseSerTest (X.fromXmlString Test.xml3)
+                   (X.parseUnvers :: Xml.Element -> Fail Test.Bla)
+                   X.serializeUnvers s
+             , mkParseSerTest (X.fromXmlString Test.xml4)
+                   (X.parseUnvers :: Xml.Element -> Fail Test.Some)
+                   X.serializeUnvers s
+             , mkParseSerTest (X.fromXmlString Test.xml5)
+                   (X.parseUnvers :: Xml.Element -> Fail Test.Some2)
+                   X.serializeUnvers s
              ]
 -------------------------------------------------------------------------------
 -- Binary (unversioned safecopy)
@@ -440,6 +478,8 @@ testsBinary
              , mkSerParseTest TestV2.easy SMC.serializeUnvers
                     (either (fail . msg) return . SMC.parseUnvers) s
              , mkSerParseTest TestV2.some SMC.serializeUnvers
+                    (either (fail . msg) return . SMC.parseUnvers) s
+             , mkSerParseTest TestV2.easy' SMC.serializeUnvers
                     (either (fail . msg) return . SMC.parseUnvers) s
              , mkCompSerTest Test.v5 SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
              , mkCompSerTest Test.v6a SMC.serializeUnvers B.encode (undefined :: BS.ByteString) s2
@@ -523,6 +563,16 @@ testsSafeCopy
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkCompSerTest Test.some2 (prettyHex . SMC.serializeSmart)
                    (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest TestV2.easy (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest TestV2.easy' (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest TestV2.someOld (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest TestV2.some (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
+             , mkCompSerTest TestV2.easy' (prettyHex . SMC.serializeSmart)
+                   (prettyHex . B.runPut . SC.safePut) (undefined :: String) s2
              , mkSerParseTest Test.v1 SMC.serializeSmart
                     (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest Test.v2 SMC.serializeSmart
@@ -580,6 +630,8 @@ testsSafeCopy
              , mkSerParseTest TestV2.easy SMC.serializeSmart
                     (either (fail . msg) return . SMC.parseSmart) s
              , mkSerParseTest TestV2.some SMC.serializeSmart
+                    (either (fail . msg) return . SMC.parseSmart) s
+             , mkSerParseTest TestV2.easy' SMC.serializeSmart
                     (either (fail . msg) return . SMC.parseSmart) s
              ]
 
@@ -675,43 +727,43 @@ testsGenericSerVersioned
              , mkCompSerTest Test.sumtest2 J.serializeSmart
                    (\_ -> J.serializeSmart GTest.sumtest2) (undefined :: Json.Value) s
              , mkCompSerTest Test.v1 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v1) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v2 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v2) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v3 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v3) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v3) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v4 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v4) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v4) (undefined :: Xml.Element) s
              , mkCompSerTest Test.bar X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.bar) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.bar) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.mybool) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.mybool) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool' X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.mybool') (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.mybool') (undefined :: Xml.Element) s
              , mkCompSerTest Test.some1 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.some1) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.some1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v7 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v7) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v7) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v8 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.v8) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.v8) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybetest1 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.maybetest1) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.maybetest1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybetest2 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.maybetest2) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.maybetest2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybeX X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.maybeX) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.maybeX) (undefined :: Xml.Element) s
              , mkCompSerTest Test.booltest X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.booltest) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.booltest) (undefined :: Xml.Element) s
              , mkCompSerTest Test.booltest' X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.booltest') (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.booltest') (undefined :: Xml.Element) s
              , mkCompSerTest Test.string X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.string) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.string) (undefined :: Xml.Element) s
              , mkCompSerTest Test.string' X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.string') (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.string') (undefined :: Xml.Element) s
              , mkCompSerTest Test.sumtest1 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.sumtest1) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.sumtest1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.sumtest2 X.serializeSmart
-                   (\_ -> X.serializeSmart GTest.sumtest2) (undefined :: String) s
+                   (\_ -> X.serializeSmart GTest.sumtest2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool' S.serializeSmart
                    (\_ -> S.serializeSmart GTest.mybool') (undefined :: String) s
              , mkCompSerTest Test.mybool S.serializeSmart
@@ -836,43 +888,43 @@ testsGenericSer
              , mkCompSerTest Test.string' J.serializeUnvers
                    (\_ -> J.serializeUnvers GTest.string') (undefined :: Json.Value) s
              , mkCompSerTest Test.v1 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v1) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v2 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v2) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v3 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v3) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v3) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v4 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v4) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v4) (undefined :: Xml.Element) s
              , mkCompSerTest Test.bar X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.bar) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.bar) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.mybool) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.mybool) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool' X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.mybool') (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.mybool') (undefined :: Xml.Element) s
              , mkCompSerTest Test.some1 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.some1) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.some1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v7 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v7) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v7) (undefined :: Xml.Element) s
              , mkCompSerTest Test.v8 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.v8) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.v8) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybetest1 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.maybetest1) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.maybetest1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybetest2 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.maybetest2) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.maybetest2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.maybeX X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.maybeX) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.maybeX) (undefined :: Xml.Element) s
              , mkCompSerTest Test.booltest X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.booltest) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.booltest) (undefined :: Xml.Element) s
              , mkCompSerTest Test.booltest' X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.booltest') (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.booltest') (undefined :: Xml.Element) s
              , mkCompSerTest Test.string X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.string) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.string) (undefined :: Xml.Element) s
              , mkCompSerTest Test.string' X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.string') (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.string') (undefined :: Xml.Element) s
              , mkCompSerTest Test.sumtest1 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.sumtest1) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.sumtest1) (undefined :: Xml.Element) s
              , mkCompSerTest Test.sumtest2 X.serializeUnvers
-                   (\_ -> X.serializeUnvers GTest.sumtest2) (undefined :: String) s
+                   (\_ -> X.serializeUnvers GTest.sumtest2) (undefined :: Xml.Element) s
              , mkCompSerTest Test.mybool' S.serializeUnvers
                    (\_ -> S.serializeUnvers GTest.mybool') (undefined :: String) s
              , mkCompSerTest Test.mybool S.serializeUnvers
@@ -1196,7 +1248,205 @@ testsGenericParseVersioned
                GTest.sumtest1 S.parseSmart
              ]
 
-msg a = "Failure: " ++ a
+testsBackFwdMigrate
+    = do let s = "datatypes in last known version according to ID list"
+             failMsg = "Expected failure: Serialized type version too current."
+         mkTestList
+            [ mkSerParseTest Test.some1
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SomeV3"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SpamV1", "SomeV3"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  S.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  S.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.someOld
+                  (\s -> S.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SpamV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easy
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  S.parseLastKnown s
+            , mkSerParseFailure TestV2.easy
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  S.parseLastKnown s
+            , mkSerParseFailure TestV2.easy'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing'
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  S.parseLastKnown s
+            , mkSerParseTest TestV2.easyOld
+                  (\s -> S.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  S.parseLastKnown s
+            , mkSerParseTest Test.some1
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SomeV3"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  X.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  X.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.someOld
+                  (\s -> X.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SpamV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easy
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  X.parseLastKnown s
+            , mkSerParseFailure TestV2.easy
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  X.parseLastKnown s
+            , mkSerParseFailure TestV2.easy'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing'
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.easyOld
+                  (\s -> X.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  X.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SomeV3"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.someOld
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SpamV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easy
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseFailure TestV2.easy
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseFailure TestV2.easy'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easyNothing
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easyNothing'
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest TestV2.easyOld
+                  (\s -> SMC.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  (fromEitherFail . SMC.parseSmart) s
+            , mkSerParseTest Test.some1
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SomeV3"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.someNewSpam
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  J.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                  J.parseLastKnown s
+            , mkSerParseFailure TestV2.someNewSpam'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.someOld
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SomeV1", "SomeV2", "SpamV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easy'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easy
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                  J.parseLastKnown s
+            , mkSerParseFailure TestV2.easy
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  J.parseLastKnown s
+            , mkSerParseFailure TestV2.easy'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easyNothing'
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest TestV2.easyOld
+                  (\s -> J.serializeLastKnown s $ mkIDs ["EasyV1", "EasyV2"])
+                  J.parseLastKnown s
+            , mkSerParseTest Test.sumtest1
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SumTestV1"])
+                  J.parseLastKnown s
+            , mkSerParseTest Test.sumtest2
+                  (\s -> J.serializeLastKnown s $ mkIDs ["SumTestV1"])
+                  J.parseLastKnown s
+            ]
+
+-------------------------------------------------------------------------------
+-- ID List for predefined SmartCopy instances
+-------------------------------------------------------------------------------
+defIDs =
+    [ "Data.Text"
+    , "Data.ByteString"
+    , "Int"
+    , "Char"
+    , "String"
+    , "Tuple"
+    , "List"
+    , "Maybe"
+    , "Bool"
+    , "Int32"
+    , "Data.SafeCopy.Prim"
+    ]
+
+mkIDs :: [String] -> [String]
+mkIDs xs = defIDs ++ xs
 
 
 main = do args <- getArgs
@@ -1213,6 +1463,7 @@ main = do args <- getArgs
             "genericP":_ -> testsGenericParse
             "genericSVers":_ -> testsGenericSerVersioned
             "genericPVers":_ -> testsGenericParseVersioned
+            "migration":_ -> testsBackFwdMigrate
             _ ->
                 do testsJSONUnvers
                    testsJSONVers
@@ -1226,3 +1477,4 @@ main = do args <- getArgs
                    testsGenericParse
                    testsGenericSerVersioned
                    testsGenericParseVersioned
+                   testsBackFwdMigrate

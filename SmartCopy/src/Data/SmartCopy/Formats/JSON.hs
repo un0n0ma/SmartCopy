@@ -1,14 +1,21 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
+-- |Formats for serialization and deserialization in JSON, either unversioned
+-- and compatible with Aeson or additionally supporting version control.
 module Data.SmartCopy.Formats.JSON
        ( serializeSmart
        , parseSmart
        , serializeUnvers
        , parseUnvers
-       , serializeWith
+       , serializeLastKnown
+       , parseLastKnown
        , encodeUnvers
        , encodeSmart
        , decodeUnvers
@@ -21,18 +28,7 @@ where
 -------------------------------------------------------------------------------
 import Data.SmartCopy
 import Data.SmartCopy.MonadTypesInstances
-       ( FailT
-       , runFailT
-       )
 import Data.SmartCopy.SmartCopy
-       ( ConstrInfo (..)
-       , Fields (..)
-       , conLookupErr
-       , mismatch
-       , noCons
-       , getSmartGet
-       , constructGetterFromVersion
-       )
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
@@ -40,8 +36,10 @@ import Data.SmartCopy.SmartCopy
 
 import Data.Aeson.Encode (encodeToTextBuilder)
 import Data.Aeson.Utils (fromFloatDigits)
+import Data.Int (Int32)
 import Data.Text.Lazy.Builder (toLazyText)
 import Data.Text.Lazy.Encoding (encodeUtf8, decodeUtf8)
+
 import qualified Data.Aeson as Json (Value(..), object, decode)
 import qualified Data.Aeson.Types as JT (Pair)
 import qualified Data.ByteString.Lazy as LBS
@@ -63,18 +61,27 @@ import Control.Arrow (first)
 import Data.Maybe
 import Data.Either (rights, lefts, either)
 
-
+-- |Deserialize a JSON value from a lazy ByteString using the corresponding
+-- Aeson function and when successful try to parse the value as an unversioned
+-- datatype.
 decodeUnvers :: SmartCopy a => LBS.ByteString -> Fail a
 decodeUnvers bs = maybe (Fail $ decodeErr bs) parseUnvers (Json.decode bs :: Maybe Json.Value)
 
+-- |Deserialize a JSON value from a lazy ByteString using the corresponding
+-- Aeson function and when successful try to parse the value as a versioned
+-- datatype.
 decodeSmart :: SmartCopy a => LBS.ByteString -> Fail a
 decodeSmart bs = maybe (Fail $ decodeErr bs) parseSmart (Json.decode bs :: Maybe Json.Value)
 
 decodeErr bs = "Failed while decoding ByteString " ++ show bs ++ " into Json Value."
 
+-- |Serialize a datatype as a JSON value without handling its version and encode
+-- the value as a lazy ByteString using the corresponding Aeson function.
 encodeUnvers :: SmartCopy a => a -> LBS.ByteString
 encodeUnvers = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeUnvers
 
+-- |Serialize a datatype as a versioned JSON value and encode the value as a 
+-- lazy ByteString using the corresponding Aeson function.
 encodeSmart :: SmartCopy a => a -> LBS.ByteString
 encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
 
@@ -82,24 +89,280 @@ encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
 --  Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
 
+-- |Convert a datatype made an instance of SmartCopy into a versioned JSON Value.
+serializeSmart :: SmartCopy a => a -> Json.Value
 serializeSmart a = runSerialization (smartPut sFormat a)
-    where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
+-- |Parse a datatype made an instance of SmartCopy from a versioned JSON value.
 parseSmart :: SmartCopy a => Json.Value -> Fail a
 parseSmart = runParser (smartGet pFormat)
-    where runParser action value =
-              evalState (evalStateT (runReaderT (runFailT action) value) value) []
 
-serializeUnvers a = runSerialization (writeSmart sFormatUnvers a)
+-- |Convert a datatype made an instance of SmartCopy into an unversioned JSON
+-- value.
+serializeUnvers :: SmartCopy a => a -> Json.Value
+serializeUnvers a = runSerialization (writeSmart sFormatUnvers a Nothing)
     where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
+-- |Parse a datatype made an instance of SmartCopy from an unversioned JSON
+-- value.
 parseUnvers :: SmartCopy a => Json.Value -> Fail a
 parseUnvers = runParser (readSmart pFormatUnvers)
     where runParser action value =
               evalState (runReaderT (runFailT action) value) []
 
-serializeWith a version = runSerialization (smartPutWithVersion sFormat a version)
-    where runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
+-- |Check if a datatype version is known by a communicating component,
+-- indicated by its identifier being present in the list of all known
+-- identifiers. Convert the latest known version of the datatype into
+-- its versioned XML representation.
+serializeLastKnown :: SmartCopy a => a -> [String] -> Json.Value
+serializeLastKnown a ids = runSerialization (smartPutLastKnown sFormatBackComp a ids)
+
+-- |Parse a versioned datatype serialized using the back-compatible XML format.
+parseLastKnown :: SmartCopy a => Json.Value -> Fail a
+parseLastKnown = runParser (smartGet pFormatBackComp)
+
+runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
+
+runParser action value =
+    evalState (evalStateT (runReaderT (runFailT action) value) value) []
+
+-------------------------------------------------------------------------------
+--  Versioned serialization with back-migration
+-------------------------------------------------------------------------------
+
+sFormatBackComp
+    = sFormat
+    { mkPutter =
+          \_ ver mIds ->
+              case mIds of
+                Just _ ->
+                    return $ \a ->
+                        do writeSmart sFormatBackComp a mIds
+                           res <- lift get
+                           let versObj = [("version", Json.Number $ fromIntegral ver)]
+                               resObj = case lookup (T.pack "version") (fromObject res) of
+                                          Just _ -> versObj ++ [("object", res)]
+                                          Nothing -> versObj ++ fromObject res
+                           lift $ put $ Json.object resObj
+                Nothing ->
+                    fail $ noIDListErr "[type not yet known]"
+    , withCons =
+          \cons ma ->
+              let ident = T.pack $ cidentifier cons ++ ":" ++ show (cindex cons) in
+              if ctagged cons
+                 then 
+                      case cfields cons of
+                        Empty ->
+                          lift $ put $ Json.String ident
+                        NF 0 ->
+                          lift $ put $ Json.object [("tag", Json.String ident),
+                                                    ("contents", Json.Array V.empty)]
+                        NF i ->
+                          do put $ Left $ Json.Array V.empty
+                             _ <- ma
+                             Left res <- get
+                             let resObj = Json.object [("tag", Json.String ident),
+                                                       ("contents", res)]
+                             lift $ put resObj
+                        LF ls ->
+                          do let fields = zip ls (repeat Json.Null)
+                                 fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                             put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                             _ <- ma
+                             Right res <- get
+                             let resObj 
+                                  = Json.object $ ("tag", Json.String ident):res
+                             lift $ put resObj
+                 else case cfields cons of
+                       LF ls ->
+                         do let fields = zip ls (repeat Json.Null)
+                                fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                            put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                            _ <- ma
+                            Right res <- get
+                            lift $ put $ Json.object res
+                       _ ->
+                         do put $ Left $ Json.Array V.empty
+                            _ <- ma
+                            Left res <- get
+                            lift $ put res
+    , writeRepetition =
+          \ar mIds ->
+              case mIds of
+                Just allIds ->
+                    case ar of
+                      []  ->
+                          lift $ put $ array []
+                      [x] ->
+                          do smartPutLastKnown sFormatBackComp x allIds
+                             ar' <- lift get
+                             lift $ put $ array [ar']
+                      xs  ->
+                          do accArray [] ar (\a -> writeSmart sFormatBackComp a mIds)
+                             ar <- lift get
+                             lift $ put $ arConcat ar
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => [a]"
+    , writeMaybe =
+          \ma mIds ->
+              case mIds of
+                Just allIds ->
+                    case ma of
+                      Just a -> smartPutLastKnown sFormatBackComp a allIds
+                      Nothing ->
+                          do lift $ put Json.Null
+                             return ()
+                Nothing ->
+                    fail $ noIDListErr "SmartCopy a => Maybe a"
+    }
+
+-------------------------------------------------------------------------------
+--  Versioned parsing with back-migration
+-------------------------------------------------------------------------------
+pFormatBackComp
+    = pFormat
+    { mkGetter =
+          \_ dupVers prevVers ->
+              return $
+              do (version, rest) <- readVersion
+                 case prevVers of
+                   Just p ->
+                       case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                         Right getter ->
+                             local (const rest) getter 
+                         Left msg -> fail msg
+                   Nothing ->
+                       case version of
+                         Just v ->
+                             case constructGetterFromVersion pFormatBackComp v kind of
+                               Right getter ->
+                                   local (const rest) getter 
+                               Left msg -> fail msg
+                         Nothing -> readSmart pFormatBackComp
+    , readCons =
+          \cons ->
+              do val <- ask
+                 let parsers = map snd cons
+                     conFields = map (cfields . fst) cons
+                 case cons of
+                   [] ->
+                       noCons
+                   [(x, parser)] ->
+                       do let conId = cidentifier x ++ ":"
+                              conLkp@(cn:_) = map (T.pack . (++) conId . show . cindex . fst) cons
+                          case val of
+                            obj@(Json.Object _) ->
+                                do _ <- putFieldsFromObj cn cons
+                                   lift $ put obj
+                                   local (const obj) parser
+                            ar@(Json.Array _) ->
+                                do _ <- putFieldsFromArr ar
+                                   lift $ put ar
+                                   local (const ar) parser
+                            otherPrim ->
+                                case cfields x of
+                                  Empty ->
+                                      do lift $ put otherPrim
+                                         local (const otherPrim) parser
+                                  NF 0 ->
+                                      do lift $ put otherPrim
+                                         local (const otherPrim) parser
+                                  NF 1 ->
+                                      do lift $ put otherPrim
+                                         local (const otherPrim) parser
+                                  _      ->
+                                      mismatch "single-field constructor" (show otherPrim)
+                   x:_ ->
+                      do let conId = cidentifier (fst x) ++ ":"
+                             conLkp = map (T.pack . (++) conId . show . cindex . fst) cons
+                         case val of
+                           Json.Object obj ->
+                               if M.member (T.pack "tag") obj
+                                  then
+                                      do let Just (Json.String con) = M.lookup (T.pack "tag") obj
+                                         case M.lookup "contents" obj of
+                                           Just args ->
+                                               case lookup con (zip conLkp parsers) of
+                                                 Just parser ->
+                                                     do putFieldsFromObj con cons
+                                                        lift $ put args
+                                                        local (const args) parser
+                                                 Nothing ->
+                                                     conLookupErr (T.unpack con) (show conLkp)
+                                           Nothing ->
+                                               do let args = M.delete (T.pack "tag") obj
+                                                  case lookup con (zip conLkp parsers) of
+                                                    Just parser ->
+                                                        do _ <- putFieldsFromObj con cons
+                                                           lift $ put $ object args
+                                                           local (const $ object args) parser
+                                                    Nothing ->
+                                                        conLookupErr (T.unpack con) (show conLkp)
+                                  else mismatch "tagged type" (show obj)
+                           ar@(Json.Array _) ->
+                               case fromArray ar of
+                                 o@(Json.Object _):xs ->
+                                       do lift $ put o
+                                          res <- local (const o) (readCons pFormatBackComp cons)
+                                          lift $ put $ array xs
+                                          return res
+                                 nameOrField@(Json.String tag):xs ->
+                                     case lookup tag (zip conLkp parsers) of
+                                       Just parser ->
+                                           do lift $ put nameOrField
+                                              res <- local (const nameOrField) parser
+                                              lift $ put $ array xs
+                                              return res
+                                       Nothing ->
+                                           conLookupErr (show tag) (show conLkp)
+                                 f -> mismatch "tagged type" (show f)
+                           tag@(Json.String s) ->
+                               case lookup s (zip conLkp parsers) of
+                                 Just parser ->
+                                     local (const tag) parser
+                                 Nothing ->
+                                     conLookupErr (show tag) (show conLkp)
+                           _ ->
+                               mismatch "tagged type" (show val)
+    , readRepetition =
+          do val <- ask
+             case val of
+               Json.Array ar ->
+                   case V.toList ar of
+                     ar1@(Json.Array _):_ ->
+                         do lift $ put ar1
+                            local (const ar1) $
+                                do getter <- getSmartGet pFormatBackComp
+                                   replicateM (length $ fromArray ar1) getter
+                     _ ->
+                         forM (V.toList ar) $ \el -> local (const el) (readSmart pFormatBackComp)
+               _ -> mismatch "Array" (show val)
+    , readMaybe =
+          do x <- ask
+             case x of
+               Json.Null -> return Nothing
+               ar@(Json.Array _) ->
+                  case fromArray ar of
+                    Json.Null:xs -> return Nothing
+                    xs ->
+                        do lift $ put ar
+                           liftM Just $ smartGet pFormatBackComp
+               val ->
+                   do lift $ put val
+                      liftM Just $ smartGet pFormatBackComp
+    }
+    where putFieldsFromObj con cons@(x:_) = 
+              do let conFields = map (cfields . fst) cons
+                     conId = cidentifier (fst x) ++ ":"
+                     conLkp = map (T.pack . (++) conId . show . cindex . fst) cons
+                     Just cf = lookup con (zip conLkp conFields)
+                     fields
+                         = case cf of
+                             Empty -> []
+                             NF i -> zip [0..i-1] (repeat Nothing)
+                             LF lbs ->
+                                 zip [0..] (map (Just . T.unpack) lbs)
+                 lift $ lift $ lift $ put fields
 
 -------------------------------------------------------------------------------
 --  Versioned serialization
@@ -108,9 +371,9 @@ serializeWith a version = runSerialization (smartPutWithVersion sFormat a versio
 sFormat
     = sFormatUnvers
     { mkPutter =
-          \_ ver ->
+          \_ ver _ ->
               return $ \a ->
-                  do writeSmart sFormat a
+                  do writeSmart sFormat a Nothing
                      res <- lift get
                      let versObj = [("version", Json.Number $ fromIntegral ver)]
                          resObj = case lookup (T.pack "version") (fromObject res) of
@@ -172,7 +435,7 @@ sFormat
                           put $ Left $ Json.Array $ ar `V.snoc` value
                    f -> fail $ "No fields found at " ++ show f
     , writeRepetition =
-          \ar ->
+          \ar _ ->
               case ar of
                 []  ->
                     lift $ put $ array []
@@ -181,11 +444,11 @@ sFormat
                        ar' <- lift get
                        lift $ put $ array [ar']
                 xs  ->
-                    do accArray [] ar (writeSmart sFormat)
+                    do accArray [] ar (\a -> writeSmart sFormat a Nothing)
                        ar <- lift get
                        lift $ put $ arConcat ar
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
                 Just a -> smartPut sFormat a
                 Nothing ->
@@ -215,16 +478,23 @@ pFormat :: ParseFormat (FailT (ReaderT Json.Value (StateT Json.Value CurrentFiel
 pFormat
     = ParseFormat
     { mkGetter =
-          \_ prevVer ->
+          \_ dupVers prevVers ->
               return $
               do (version, rest) <- readVersion
-                 case version of
-                   Just v ->
-                       case constructGetterFromVersion pFormat v kind of
+                 case prevVers of
+                   Just p ->
+                       case constructGetterFromVersion pFormat (Version p) kind of
                          Right getter ->
                              local (const rest) getter 
                          Left msg -> fail msg
-                   Nothing -> readSmart pFormat
+                   Nothing ->
+                       case version of
+                         Just v ->
+                             case constructGetterFromVersion pFormat v kind of
+                               Right getter ->
+                                   local (const rest) getter 
+                               Left msg -> fail msg
+                         Nothing -> readSmart pFormat
     , readCons =
           \cons ->
               do val <- ask
@@ -348,7 +618,7 @@ pFormat
                      ar1@(Json.Array _):_ ->
                          do lift $ put ar1
                             local (const ar1) $
-                                do getSmartGet pFormat >>= replicateM (length $ fromArray ar1)
+                                getSmartGet pFormat >>= replicateM (length $ fromArray ar1)
                      _ ->
                          forM (V.toList ar) $ \el -> local (const el) (readSmart pFormat)
                _ -> mismatch "Array" (show val)
@@ -444,52 +714,7 @@ pFormat
                   _ -> mismatch "Text" (show x)
                _ -> mismatch "Text" (show x)
     }
-    where withoutVersion o@(Json.Object obj)
-              | M.member (T.pack "version") obj && M.member (T.pack "object") obj
-              = fromJust $ M.lookup (T.pack "object") obj
-              | M.member (T.pack "version") obj
-              = Json.Object $ M.delete (T.pack "version") obj
-              | otherwise = o
-          withoutVersion v = v
-
-          readVersion =
-              do val <- lift get
-                 case val of
-                   o@(Json.Object obj) ->
-                     case M.lookup (T.pack "version") obj of
-                       Just (Json.Number ver) ->
-                           return (Just $ Version $ floor ver, withoutVersion o)
-                       _ ->
-                           case M.toList obj of
-                             [] -> return (Nothing, o)
-                             (index, Json.Object obj'):xs ->
-                                 case M.toList obj' of
-                                   [(label, cont)] ->
-                                       do lift $ put cont
-                                          v <- readVersion
-                                          lift $ put $ Json.object xs
-                                          return v
-                             (k, v):xs ->
-                                 do lift $ put v
-                                    v <- readVersion
-                                    lift $ put $ Json.object xs
-                                    return v
-                   a@(Json.Array ar) ->
-                      case V.length ar of
-                        0 -> return (Nothing, Json.Null)
-                        n ->
-                            case V.toList ar of
-                              [val] ->
-                                  do lift $ put val
-                                     readVersion
-                              val:xs ->
-                                  do lift $ put val
-                                     (v, rest) <- readVersion
-                                     lift $ put $ array xs
-                                     return (v, array $ rest:xs)
-                   v -> return (Nothing, v)
-
-          putFieldsFromObj con cons = 
+    where putFieldsFromObj con cons = 
               do let conFields = map (cfields . fst) cons
                      conNames = map (cname . fst) cons
                      Just cf = lookup con (zip conNames conFields)
@@ -500,12 +725,7 @@ pFormat
                              LF lbs ->
                                  zip [0..] (map (Just . T.unpack) lbs)
                  lift $ lift $ lift $ put fields
-
-          putFieldsFromArr ar =
-              do let l = length $ fromArray ar
-                     fields = zip [0..l-1] (repeat Nothing)
-                 lift $ lift $ lift $ put fields
-
+    
 -------------------------------------------------------------------------------
 -- Unversioned serialization
 -------------------------------------------------------------------------------
@@ -513,7 +733,7 @@ pFormat
 sFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 sFormatUnvers
     = SerializationFormat
-    { mkPutter = \_ v -> return $ writeSmart sFormatUnvers
+    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -566,15 +786,15 @@ sFormatUnvers
                    f -> fail $ "No fields found at " ++ show f
     
     , writeRepetition =
-          \ar ->
+          \ar _ ->
               case ar of
                 [] -> lift $ put $ array []
                 [x] ->
-                    do writeSmart sFormatUnvers x
+                    do writeSmart sFormatUnvers x Nothing
                        el <- lift get
                        lift $ put $ array [el]
                 _ ->
-                    do accArray [] ar (writeSmart sFormatUnvers)
+                    do accArray [] ar (\a -> writeSmart sFormatUnvers a Nothing)
                        ar <- lift get
                        lift $ put $ arConcat ar
     , writeInt =
@@ -602,9 +822,9 @@ sFormatUnvers
               do lift $ put $ Json.Number $ fromFloatDigits d
                  return ()
     , writeMaybe =
-          \ma ->
+          \ma _ ->
               case ma of
-                Just a -> writeSmart sFormatUnvers a
+                Just a -> writeSmart sFormatUnvers a Nothing
                 Nothing ->
                     do lift $ put Json.Null
                        return ()
@@ -631,7 +851,7 @@ sFormatUnvers
 pFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
 pFormatUnvers
     = ParseFormat
-    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers 
     , readCons =
         \cons ->
             do val <- ask
@@ -870,3 +1090,53 @@ arConcat a@(Json.Array ar)
             _           -> x
         _ -> a
 arConcat o = o
+
+putFieldsFromArr ar =
+    do let l = length $ fromArray ar
+           fields = zip [0..l-1] (repeat Nothing)
+       lift $ lift $ lift $ put fields
+
+readVersion =
+    do val <- lift get
+       case val of
+         o@(Json.Object obj) ->
+           case M.lookup (T.pack "version") obj of
+             Just (Json.Number ver) ->
+                 return (Just $ Version $ floor ver, withoutVersion o)
+             _ ->
+                 case M.toList obj of
+                   [] -> return (Nothing, o)
+                   (index, Json.Object obj'):xs ->
+                       case M.toList obj' of
+                         [(label, cont)] ->
+                             do lift $ put cont
+                                v <- readVersion
+                                lift $ put $ Json.object xs
+                                return v
+                   (k, v):xs ->
+                       do lift $ put v
+                          v <- readVersion
+                          lift $ put $ Json.object xs
+                          return v
+         a@(Json.Array ar) ->
+            case V.length ar of
+              0 -> return (Nothing, Json.Null)
+              n ->
+                  case V.toList ar of
+                    [val] ->
+                        do lift $ put val
+                           readVersion
+                    val:xs ->
+                        do lift $ put val
+                           (v, rest) <- readVersion
+                           lift $ put $ array xs
+                           return (v, array $ rest:xs)
+         v -> return (Nothing, v)
+
+withoutVersion o@(Json.Object obj)
+    | M.member (T.pack "version") obj && M.member (T.pack "object") obj
+    = fromJust $ M.lookup (T.pack "object") obj
+    | M.member (T.pack "version") obj
+    = Json.Object $ M.delete (T.pack "version") obj
+    | otherwise = o
+withoutVersion v = v

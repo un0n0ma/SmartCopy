@@ -1,4 +1,4 @@
-module TestOutput where
+module Tests.TestOutput where
 
 -------------------------------------------------------------------------------
 -- LOCAL
@@ -7,15 +7,27 @@ import qualified Tests.TestInstances as Test
 import qualified Tests.TestInstancesDerived as GTest
 import qualified Tests.TestInstancesMigrate as TestV2
 
+import Tests.Tests (mkIDs)
+
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
+import Data.SmartCopy
+import Hexdump
+import System.Environment
+
+import qualified Data.Aeson as Json
+import qualified Data.ByteString.Lazy.Char8 as BSL
+import qualified Data.SafeCopy as SC
+import qualified Data.Serialize as B
 import qualified Data.SmartCopy.Formats.JSON as J 
                ( serializeSmart
                , serializeUnvers
+               , serializeLastKnown
+               , parseLastKnown
+               , parseLastKnown
                , parseSmart
                , parseUnvers
-               , serializeWith
                , encodeUnvers
                , encodeSmart
                , decodeSmart
@@ -26,12 +38,18 @@ import qualified Data.SmartCopy.Formats.String as S
                , serializeUnvers
                , parseSmart
                , parseUnvers
+               , serializeLastKnown
+               , parseLastKnown
                )
 import qualified Data.SmartCopy.Formats.XmlLike as X
                ( serializeSmart
                , serializeUnvers
                , parseSmart
                , parseUnvers
+               , fromXmlString
+               , toXmlString
+               , serializeLastKnown
+               , parseLastKnown
                )
 import qualified Data.SmartCopy.Formats.SafeCopy as SMC
                ( serializeSmart
@@ -39,14 +57,6 @@ import qualified Data.SmartCopy.Formats.SafeCopy as SMC
                , parseSmart
                , parseUnvers
                )
-import qualified Data.Aeson as Json
-import qualified Data.ByteString.Lazy.Char8 as BSL
-import qualified Data.Serialize as B
-
-import Data.SmartCopy
-import Hexdump
-import System.Environment
-
 
 main = do args <- getArgs
           let fmtList = ["json", "string", "xml", "safecopy"]
@@ -129,28 +139,45 @@ main = do args <- getArgs
                    print (J.decodeSmart $ J.encodeSmart Test.v8 :: Fail Test.ArrTypeFooBar)
 
                    putStrLn "BACK-MIGRATION:"
-                   print (J.serializeWith TestV2.someOld 1)
-                 --  print (J.serializeWith TestV2.some 2)
+                   print (J.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                   print (J.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV2", "SpamV1"])
+                   print (J.serializeLastKnown Test.some1 $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   print (J.serializeLastKnown GTest.some1 $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   print (J.serializeLastKnown TestV2.some $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   print (J.serializeLastKnown TestV2.some $ mkIDs ["SomeV1", "SomeV2", "SpamV2", "SpamV1"])
+                   print (J.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1"])
+                   print (J.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2"])
+                   print (J.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                   print (J.parseLastKnown (J.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
+                   print (J.parseLastKnown (J.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
             "string":_ ->
                 do putStrLn "DATATYPES AS STRING VALUES:"
-                   print (S.serializeUnvers Test.maybetest1)
-                   print (S.serializeUnvers Test.maybetest2)
-                   print (S.serializeUnvers Test.maybeX)
-                   print (S.serializeUnvers Test.v3)
-                   print (S.serializeUnvers Test.v2)
-                   print (S.serializeSmart Test.v1)
-                   print (S.serializeSmart Test.v5)
-                   print (S.serializeSmart Test.v6a)
-                   print (S.serializeSmart Test.v6b)
-                   print (S.serializeSmart Test.v8)
-                   print (S.serializeSmart Test.string)
-                   print (S.serializeSmart Test.some1)
-                   print (S.serializeSmart Test.some2)
-                   print (S.serializeSmart Test.booltest)
-                   print (S.serializeSmart Test.booltest')
-                   print (S.serializeSmart Test.string')
-                   print (S.serializeSmart Test.s6parsed)
+                   putStrLn (S.serializeUnvers Test.maybetest1)
+                   putStrLn (S.serializeUnvers Test.maybetest2)
+                   putStrLn (S.serializeUnvers Test.maybeX)
+                   putStrLn (S.serializeUnvers Test.v3)
+                   putStrLn (S.serializeUnvers Test.v2)
+                   putStrLn (S.serializeSmart Test.v1)
+                   putStrLn (S.serializeSmart Test.v5)
+                   putStrLn (S.serializeSmart Test.v6a)
+                   putStrLn (S.serializeSmart Test.v6b)
+                   putStrLn (S.serializeSmart Test.v8)
+                   putStrLn (S.serializeSmart Test.string)
+                   putStrLn (S.serializeSmart Test.some1)
+                   putStrLn (S.serializeSmart Test.some2)
+                   putStrLn (S.serializeSmart Test.booltest)
+                   putStrLn (S.serializeSmart Test.booltest')
+                   putStrLn (S.serializeSmart Test.string')
+                   putStrLn (S.serializeSmart Test.s6parsed)
                    putStrLn "PARSING STRING VALUES:"
+                   print (S.parseSmart (S.serializeSmart TestV2.someNewSpam) :: Fail TestV2.Some)
                    print (S.parseUnvers Test.somestring1 :: Fail Test.Some)
                    print (S.parseUnvers Test.somestring2 :: Fail Test.Some2)
                    print (S.parseUnvers Test.s1 :: Fail Test.Easy)
@@ -160,40 +187,85 @@ main = do args <- getArgs
                    print (S.parseUnvers Test.s5 :: Fail Test.ArrTypeBar)
                    print (S.parseUnvers Test.s6 :: Fail Test.ArrTypeBar)
                    print (S.parseUnvers Test.s7 :: Fail Test.ArrTypeFooBar)
+                   putStrLn "BACK-MIGRATION:"
+                   putStrLn (S.serializeLastKnown TestV2.someNewSpam' $
+                       mkIDs ["SomeV1", "SomeV2", "SpamV1", "SomeV3"])
+                   putStrLn (S.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                   putStrLn (S.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV2", "SpamV1"])
+                   putStrLn (S.serializeLastKnown Test.some1 $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   putStrLn (S.serializeLastKnown GTest.some1 $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   putStrLn (S.serializeLastKnown TestV2.some $ mkIDs ["SomeV1", "SpamV2", "SpamV1"])
+                   putStrLn (S.serializeLastKnown TestV2.some $ mkIDs ["SomeV1", "SomeV2", "SpamV2", "SpamV1"])
+                   putStrLn (S.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1"])
+                   putStrLn (S.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2"])
+                   putStrLn (S.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2", "EasyV3"])
+                   print (S.parseLastKnown (S.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
+                   print (S.parseLastKnown (S.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
+
             "xml":_ ->
                 do putStrLn "DATATYPES XML-ENCODED:"
-                   putStrLn (X.serializeUnvers Test.v6a)
-                   putStrLn (X.serializeUnvers Test.v6b)
-                   putStrLn (X.serializeSmart Test.v6a)
-                   putStrLn (X.serializeSmart (42 :: Int))
-                   putStrLn (X.serializeUnvers (42 :: Int))
-                   putStrLn (X.serializeSmart ([1,2,3,4] :: [Int]))
-                   putStrLn (X.serializeUnvers ([1,2,3,4] :: [Int]))
-                   putStrLn (X.serializeSmart Test.some1)
-                   putStrLn (X.serializeSmart Test.v2)
-                   putStrLn (X.serializeSmart Test.v1)
-                   putStrLn (X.serializeSmart Test.v3)
-                   putStrLn (X.serializeSmart Test.some2)
-                   putStrLn (X.serializeSmart Test.v4)
-                   putStrLn (X.serializeSmart Test.v5)
-                   putStrLn (X.serializeUnvers Test.v6a)
-                   putStrLn (X.serializeSmart Test.v6a)
-                   putStrLn (X.serializeUnvers Test.v6b)
-                   putStrLn (X.serializeSmart Test.v6b)
-                   putStrLn (X.serializeSmart Test.v7)
-                   putStrLn (X.serializeSmart Test.v8)
-                   putStrLn (X.serializeSmart Test.string)
-                   putStrLn (X.serializeSmart Test.booltest)
-                   putStrLn (X.serializeSmart Test.booltest')
-                   putStrLn (X.serializeSmart Test.s6parsed)
-                   putStrLn (X.serializeSmart Test.maybetest1)
-                   putStrLn (X.serializeSmart Test.maybetest2)
+                   putStrLn (X.toXmlString $ X.serializeUnvers Test.v6a)
+                   putStrLn (X.toXmlString $ X.serializeUnvers Test.v6b)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v6a)
+                   putStrLn (X.toXmlString $ X.serializeSmart (42 :: Int))
+                   putStrLn (X.toXmlString $ X.serializeUnvers (42 :: Int))
+                   putStrLn (X.toXmlString $ X.serializeSmart ([1,2,3,4] :: [Int]))
+                   putStrLn (X.toXmlString $ X.serializeUnvers ([1,2,3,4] :: [Int]))
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.some1)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v2)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v1)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v3)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.some2)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v4)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v5)
+                   putStrLn (X.toXmlString $ X.serializeUnvers Test.v6a)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v6a)
+                   putStrLn (X.toXmlString $ X.serializeUnvers Test.v6b)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v6b)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v7)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.v8)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.string)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.booltest)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.booltest')
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.s6parsed)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.maybetest1)
+                   putStrLn (X.toXmlString $ X.serializeSmart Test.maybetest2)
                    putStrLn "PARSING XML:"
-                   print (X.parseUnvers Test.xml1 :: Fail Test.Easy)
-                   print (X.parseUnvers Test.xml2 :: Fail Test.FooBar)
-                   print (X.parseUnvers Test.xml3 :: Fail Test.Bla)
-                   print (X.parseUnvers Test.xml4 :: Fail Test.Some)
-                   print (X.parseUnvers Test.xml5 :: Fail Test.Some2)
+                   print (X.parseUnvers $ X.fromXmlString $ Test.xml1 :: Fail Test.Easy)
+                   print (X.parseUnvers $ X.fromXmlString $ Test.xml2 :: Fail Test.FooBar)
+                   print (X.parseUnvers $ X.fromXmlString $ Test.xml3 :: Fail Test.Bla)
+                   print (X.parseUnvers $ X.fromXmlString $ Test.xml4 :: Fail Test.Some)
+                   print (X.parseUnvers $ X.fromXmlString $ Test.xml5 :: Fail Test.Some2)
+                   putStrLn "BACK-MIGRATION:"
+                   print (X.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])
+                   print (X.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV2", "SpamV1"])
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown Test.some1 $
+                       mkIDs ["SomeV1", "SpamV2", "SpamV1"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown GTest.some1 $
+                       mkIDs ["SomeV1", "SpamV2", "SpamV1"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown TestV2.some $
+                       mkIDs ["SomeV1", "SpamV2", "SpamV1"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown TestV2.some $
+                       mkIDs ["SomeV1", "SomeV2", "SpamV2", "SpamV1"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2"]
+                   putStrLn $ X.toXmlString $ X.serializeLastKnown TestV2.easy' $
+                       mkIDs ["EasyV1", "EasyV2", "EasyV3"]
+                   print (X.parseLastKnown (X.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
+                   print (X.parseLastKnown (X.serializeLastKnown TestV2.someNewSpam $
+                       mkIDs ["SomeV3", "SpamV1", "SpamV2"]) :: Fail TestV2.Some)
             "safecopy":_ ->
                 do putStrLn "DATATYPES SAFECOPY-ENCODED:"
                    print $ prettyHex $ SMC.serializeSmart Test.mybool
@@ -213,7 +285,13 @@ main = do args <- getArgs
                    print $ prettyHex $ SMC.serializeSmart Test.v8
                    print $ prettyHex $ SMC.serializeSmart Test.string'
                    print $ prettyHex $ SMC.serializeSmart Test.booltest'
+                   print $ prettyHex $ SMC.serializeSmart TestV2.easy
+                   print $ prettyHex $ SMC.serializeSmart TestV2.easy'
+                   print $ prettyHex $ SMC.serializeSmart TestV2.someOld
+                   print $ prettyHex $ SMC.serializeSmart Test.some1
+                   print $ prettyHex $ B.runPut $ SC.safePut TestV2.someOld
+                   print $ prettyHex $ B.runPut $ SC.safePut Test.some1
+                   print (B.runGet SC.safeGet (B.runPut $ SC.safePut Test.some1) :: Either String Test.Some)
+                   print (B.runGet SC.safeGet (B.runPut $ SC.safePut TestV2.someOld) :: Either String Test.Some)
             _ ->
-                putStrLn $ "Specify a format out of " ++ show fmtList
-
-
+                putStrLn $ "Please choose output mode: " ++ show fmtList
