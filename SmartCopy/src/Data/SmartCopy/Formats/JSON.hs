@@ -148,44 +148,44 @@ sFormatBackComp
                     fail $ noIDListErr "[type not yet known]"
     , withCons =
           \cons ma ->
-              let ident = T.pack $ cidentifier cons ++ ":" ++ show (cindex cons) in
-              if ctagged cons
-                 then 
-                      case cfields cons of
-                        Empty ->
-                          lift $ put $ Json.String ident
-                        NF 0 ->
-                          lift $ put $ Json.object [("tag", Json.String ident),
-                                                    ("contents", Json.Array V.empty)]
-                        NF i ->
-                          do put $ Left $ Json.Array V.empty
-                             _ <- ma
-                             Left res <- get
-                             let resObj = Json.object [("tag", Json.String ident),
-                                                       ("contents", res)]
-                             lift $ put resObj
-                        LF ls ->
-                          do let fields = zip ls (repeat Json.Null)
-                                 fieldsWithInd = zip [0..] $ map (Json.object . return) fields
-                             put $ Right $ map (first (T.pack . show)) fieldsWithInd
-                             _ <- ma
-                             Right res <- get
-                             let resObj 
-                                  = Json.object $ ("tag", Json.String ident):res
-                             lift $ put resObj
-                 else case cfields cons of
-                       LF ls ->
-                         do let fields = zip ls (repeat Json.Null)
-                                fieldsWithInd = zip [0..] $ map (Json.object . return) fields
-                            put $ Right $ map (first (T.pack . show)) fieldsWithInd
-                            _ <- ma
-                            Right res <- get
-                            lift $ put $ Json.object res
-                       _ ->
-                         do put $ Left $ Json.Array V.empty
-                            _ <- ma
-                            Left res <- get
-                            lift $ put res
+              do let ident = T.pack $ cidentifier cons ++ ":" ++ show (cindex cons)
+                 if ctagged cons
+                    then 
+                         case cfields cons of
+                           Empty ->
+                             lift $ put $ Json.String ident
+                           NF 0 ->
+                             lift $ put $ Json.object [("tag", Json.String ident),
+                                                       ("contents", Json.Array V.empty)]
+                           NF i ->
+                             do put $ Left $ Json.Array V.empty
+                                _ <- ma
+                                Left res <- get
+                                let resObj = Json.object [("tag", Json.String ident),
+                                                          ("contents", res)]
+                                lift $ put resObj
+                           LF ls ->
+                             do let fields = zip ls (repeat Json.Null)
+                                    fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                                put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                                _ <- ma
+                                Right res <- get
+                                let resObj 
+                                     = Json.object $ ("tag", Json.String ident):res
+                                lift $ put resObj
+                    else case cfields cons of
+                          LF ls ->
+                              do let fields = zip ls (repeat Json.Null)
+                                     fieldsWithInd = zip [0..] $ map (Json.object . return) fields
+                                 _ <- ma
+                                 Right res <- get
+                                 lift $ put $ Json.object res
+                                 put $ Right $ map (first (T.pack . show)) fieldsWithInd
+                          _ ->
+                            do put $ Left $ Json.Array V.empty
+                               _ <- ma
+                               Left res <- get
+                               lift $ put res
     , writeRepetition =
           \ar mIds ->
               case mIds of

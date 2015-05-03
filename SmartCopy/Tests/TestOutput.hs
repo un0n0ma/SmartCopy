@@ -238,11 +238,11 @@ main = do args <- getArgs
                    putStrLn (X.toXmlString $ X.serializeSmart Test.maybetest1)
                    putStrLn (X.toXmlString $ X.serializeSmart Test.maybetest2)
                    putStrLn "PARSING XML:"
-                   print (X.parseUnvers $ X.fromXmlString $ Test.xml1 :: Fail Test.Easy)
-                   print (X.parseUnvers $ X.fromXmlString $ Test.xml2 :: Fail Test.FooBar)
-                   print (X.parseUnvers $ X.fromXmlString $ Test.xml3 :: Fail Test.Bla)
-                   print (X.parseUnvers $ X.fromXmlString $ Test.xml4 :: Fail Test.Some)
-                   print (X.parseUnvers $ X.fromXmlString $ Test.xml5 :: Fail Test.Some2)
+                   print (X.parseUnvers $ X.fromXmlString Test.xml1 :: Fail Test.Easy)
+                   print (X.parseUnvers $ X.fromXmlString Test.xml2 :: Fail Test.FooBar)
+                   print (X.parseUnvers $ X.fromXmlString Test.xml3 :: Fail Test.Bla)
+                   print (X.parseUnvers $ X.fromXmlString Test.xml4 :: Fail Test.Some)
+                   print (X.parseUnvers $ X.fromXmlString Test.xml5 :: Fail Test.Some2)
                    putStrLn "BACK-MIGRATION:"
                    print (X.serializeLastKnown TestV2.someNewSpam $
                        mkIDs ["SomeV1", "SomeV2", "SomeV3", "SpamV1"])

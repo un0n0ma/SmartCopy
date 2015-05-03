@@ -12,9 +12,9 @@ module Tests.Tests where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
-import qualified TestInstances as Test
-import qualified TestInstancesDerived as GTest
-import qualified TestInstancesMigrate as TestV2
+import qualified Tests.TestInstances as Test
+import qualified Tests.TestInstancesDerived as GTest
+import qualified Tests.TestInstancesMigrate as TestV2
 
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES

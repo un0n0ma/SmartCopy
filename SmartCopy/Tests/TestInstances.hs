@@ -260,7 +260,7 @@ instance SmartCopy BoolTestLong where
     writeSmart fmt x@(BoolTestLong blist b slist) mIds =
         withCons fmt
             (CInfo "BoolTestLong" (LF ["blist", "b", "slist"]) False 0 $
-            unId (identifier :: Identifier BoolTestLong)) $ writeFields
+            unId (identifier :: Identifier BoolTestLong)) writeFields
         where writeFields =
                 case mIds of
                   Just allIds ->
@@ -545,7 +545,7 @@ instance SmartCopy Bar where
     identifier = ID "BarV1"
     version = 1
     kind = base
-    writeSmart fmt x@(BarLeft) _ =
+    writeSmart fmt x@BarLeft _ =
         withCons fmt (CInfo "BarLeft" (NF 0) True 0 $
         unId (identifier :: Identifier Bar)) (return ())
     writeSmart fmt x@(BarRight foo) mIds =

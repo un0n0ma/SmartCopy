@@ -40,14 +40,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
 import qualified Data.Text.Lazy as TL
 import qualified Text.XML as X
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC (pack, unpack)
-import qualified Data.List as L
-import qualified Data.Map as M
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
-import qualified Data.Text.Lazy as TL
-import qualified Text.XML as X
 
 -------------------------------------------------------------------------------
 -- STDLIB
@@ -106,7 +98,7 @@ parseLastKnown
     = runParser (smartGet pFormatBackComp)
     
 -- |Convert an XML root element to a string, using Data.XML functions.
-toXmlString = TL.unpack . (\doc -> X.renderText X.def doc) . (\m -> X.Document (X.Prologue [] Nothing []) m [])
+toXmlString = TL.unpack . X.renderText X.def . (\m -> X.Document (X.Prologue [] Nothing []) m [])
 
 runSerialization m = execState (evalStateT m []) emptyEl
 
@@ -215,11 +207,7 @@ sFormatBackComp
                     fail $ noIDListErr "[type not yet known]"
     , withCons =
           \cons ma ->
-              do let fields =
-                          case cfields cons of
-                            Empty -> []
-                            NF i -> map (T.pack . (++) "Field" . show) [0..i-1]
-                            LF ls -> ls
+              do let fields = getFields cons
                  let nodes = map makeEmptyNode fields
                  put nodes
                  ma
@@ -387,12 +375,8 @@ sFormat
                      lift $ put versEl
     , withCons =
           \cons ma ->
-              do let fields =
-                          case cfields cons of
-                            Empty -> []
-                            NF i -> map (T.pack . (++) "Field" . show) [0..i-1]
-                            LF ls -> ls
-                 let nodes = map makeEmptyNode fields
+              do let fields = getFields cons
+                     nodes = map makeEmptyNode fields
                  put nodes
                  ma
                  resNodes <- get
@@ -751,3 +735,9 @@ readVersion el =
                [(int,[])] -> return $ Just $ Version int
                _ -> mismatch "int32 for version" (show vText)
          Nothing -> return Nothing
+              
+getFields cons
+    = case cfields cons of
+        Empty -> []
+        NF i -> map (T.pack . (++) "Field" . show) [0..i-1]
+        LF ls -> ls
