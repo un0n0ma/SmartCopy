@@ -105,6 +105,7 @@ import "mtl" Control.Monad.Writer
 -- If a type should explicitly not be tagged with a version its kind can be
 -- made primitive.
 class SmartCopy a where
+-- Dokumentation fehlt
     identifier :: Identifier a
     -- |The (unique) version of a datatype. Per default 0.
     version :: Version a
@@ -148,6 +149,9 @@ class GSmartCopy t where
     -- As version tags are written out as a side-effect when returning the putter
     -- for a field, deriveSafeCopy-compatibility requires an additional wrapper
     -- around the constructed putter.
+    -- What putter? The function below does not mention any putters.
+    -- Comments for the arguments would be good
+    -- And what is this crazy return type with two nested ms?
     gwriteSmart :: Monad m
                 => SerializationFormat m
                 -> t x
@@ -163,6 +167,9 @@ class GSmartCopy t where
     -- As version tags are read as a side-effect when returning the getter
     -- for a field, deriveSafeCopy-compatibility requires an additional wrapper
     -- around the constructed getter.
+    -- What getter? The function below does not mention any getters.
+    -- Comments for the arguments would be good    
+    -- And what is this crazy return type with three nested ms?
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
                -> [ConstrInfo]
@@ -193,6 +200,7 @@ data SerializationFormat m
       -- right after writing the constructor tag.
       -- All so far implemented formats but SafeCopy and String format don't make
       -- this discrimination for duplicate types.
+      -- document arguments
       mkPutter :: SmartCopy a => Bool -> Int32 -> Maybe [String] ->  m (a -> m ())
       -- |Write out constructor information to a datatype as required in the
       -- specified format.
@@ -204,6 +212,7 @@ data SerializationFormat m
       -- |Write a list according to the specifications of the format. As all list
       -- elements are required to have the same version, the version tag is usually
       -- written out only once for the entire list.
+      -- what's the Maybe [String] argument good for
     , writeRepetition :: SmartCopy a => [a] -> Maybe [String] -> m ()
       -- |Serialize an Int primitive.
     , writeInt :: Int -> m ()
@@ -244,7 +253,8 @@ data ParseFormat m
       -- If mkGetter is called with True the version tag is read as side-effect
       -- right after reading the constructor tag.
       -- All so far implemented formats but SafeCopy and String format don't make
-      -- this discrimination for duplicate types.
+      -- this discrimination for duplicate types. --double negation, difficult to understand
+      -- document the argument types
       mkGetter :: SmartCopy a => Bool -> Int32 -> Maybe Int32 -> m (m a)
       -- |Read constructor information and parse a datatype accordingly.
       -- readCons is called with a map that contains a parser for each possible
@@ -328,7 +338,7 @@ data ConstrInfo
     { cname :: T.Text
     , cfields :: Fields
     , ctagged :: Bool
-    , cindex :: Integer
+    , cindex :: Integer -- Int would be more common
     , cidentifier :: String
     }
     deriving (Show, Eq)
