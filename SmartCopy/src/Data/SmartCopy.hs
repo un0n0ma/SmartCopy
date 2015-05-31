@@ -7,16 +7,18 @@ module Data.SmartCopy
     , Fields (..)
     , smartPut
     , smartGet
-    , smartPutWithVersion
+    , smartPutLastKnown
     , getSmartGet
     , getSmartPut
+    , getSmartPutLastKnown
     , base
     , extension
     , primitive
     , Version (..)
-    , Kind
+    , Identifier (..)
     , fromOk
     , Fail (..)
+    , fromEitherFail
     )
 where
 

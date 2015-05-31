@@ -46,9 +46,9 @@ module Data.SmartCopy.SmartCopy
        , base
        , extension
        , primitive
-       , Identifier (..)
        , Version (..)
        , Kind (..)
+       , Identifier (..)
        , Reverse
        , Proxy (..)
        , versionFromProxy
@@ -56,6 +56,8 @@ module Data.SmartCopy.SmartCopy
        , identFromProxy
        , asProxyType
        , checkConsistency
+       , Fail (..)
+       , fromEitherFail
        )
 where
 
