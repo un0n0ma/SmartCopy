@@ -16,42 +16,42 @@ import Criterion.Types
 import Data.SmartCopy
 
 main = defaultMain
-     [ bgroup "serialize unvers nested: Some (Spam Int Int)"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.some2)
+     [ bgroup "Serialize unversioned ADTs: Some (Spam Int Int)"
+       [ bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.some2)
        , bench "Aeson" (whnf Aeson.toJSON Test.some2)
        ]
-     , bgroup "serialize unvers nested: Some (Spam Int) Int"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.some1)
+     , bgroup "Serialize unversioned ADTs: Some (Spam Int) Int"
+       [ bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.some1)
        , bench "Aeson" (whnf Aeson.toJSON Test.some1)
        ]
-     , bgroup "serialize unvers No-Fields types"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.bar)
+     , bgroup "Serialize unversioned empty-constructor types"
+       [ bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.bar)
        , bench "Aeson" (whnf Aeson.toJSON Test.bar)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.Bla)
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.Bla)
        , bench "Aeson" (whnf Aeson.toJSON Test.Bla)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.mybool)
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.mybool)
        , bench "Aeson" (whnf Aeson.toJSON Test.mybool)
        ]
-     , bgroup "serialize unvers primitives"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers (42 :: Int))
+     , bgroup "Serialize unversioned primitives"
+       [ bench "SmartCopy-JSON" (whnf J.serializeUnvers (42 :: Int))
        , bench "Aeson" (whnf Aeson.toJSON (42 :: Int))
-       , bench "smartC-JSON" (whnf J.serializeUnvers "Benchmark")
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers "Benchmark")
        , bench "Aeson" (whnf Aeson.toJSON "Benchmark")
-       , bench "smartC-JSON" (whnf J.serializeUnvers ([1,2,3,4] :: [Int]))
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers ([1,2,3,4] :: [Int]))
        , bench "Aeson" (whnf Aeson.toJSON ([1,2,3,4] :: [Int]))
        ]
-     , bgroup "serialize Array types"
-       [ bench "smartC-JSON" (whnf J.serializeUnvers Test.v6a)
+     , bgroup "serialize unversioned Array types"
+       [ bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.v6a)
        , bench "Aeson" (whnf Aeson.toJSON Test.v6a)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.v7)
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.v7)
        , bench "Aeson" (whnf Aeson.toJSON Test.v7)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.v8)
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.v8)
        , bench "Aeson" (whnf Aeson.toJSON Test.v8)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.string)
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.string)
        , bench "Aeson" (whnf Aeson.toJSON Test.string)
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.string')
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.string')
        , bench "Aeson" (whnf Aeson.toJSON Test.string')
-       , bench "smartC-JSON" (whnf J.serializeUnvers Test.booltest')
+       , bench "SmartCopy-JSON" (whnf J.serializeUnvers Test.booltest')
        , bench "Aeson" (whnf Aeson.toJSON Test.booltest')
        ]
      ]

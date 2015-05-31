@@ -18,7 +18,7 @@ import Criterion.Monad
 import Criterion.Types
 
 main = defaultMain
-           [ bgroup "Parse versioned: Nested datatypes"
+           [ bgroup "Parse ADTs"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Some2)
                (SMC.serializeSmart Test.some2))
@@ -32,7 +32,7 @@ main = defaultMain
                (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.Some)
                (B.runPut $ SC.safePut Test.some1))
              ]
-           , bgroup "Parse versioned: Datatypes with no fields"
+           , bgroup "Parse empty-constructor types"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.Bar)
                (SMC.serializeSmart Test.bar))
@@ -52,7 +52,7 @@ main = defaultMain
                (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String Test.MyBool)
                (B.runPut $ SC.safePut Test.mybool))
              ]
-           , bgroup "Parse versioned: Primitives"
+           , bgroup "Parse primitives"
              [ bench "SmartCopy" (whnf (SMC.parseSmart :: BS.ByteString -> Either String Int)
                (SMC.serializeSmart (42 :: Int)))
              , bench "SafeCopy"
@@ -69,7 +69,7 @@ main = defaultMain
                (whnf (B.runGet SC.safeGet :: BS.ByteString -> Either String [Int])
                (B.runPut $ SC.safePut ([1,2,3,4] :: [Int])))
              ]
-           , bgroup "Parse versioned: Array types"
+           , bgroup "Parse Array types"
              [ bench "SmartCopy"
                (whnf (SMC.parseSmart :: BS.ByteString -> Either String Test.ArrType)
                (SMC.serializeSmart Test.v6a))

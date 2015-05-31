@@ -57,8 +57,8 @@ instance
     greadSmart fmt _ _ [ident]
         = return $ return $
             do conList <- mkGConList (P.Proxy :: P.Proxy f) 0 ident
-               conMap <- mkGParserList fmt (undefined :: f x) Nothing
-               liftM M1 $ readCons fmt $ zip conList conMap
+               parserList <- mkGParserList fmt (undefined :: f x) Nothing
+               liftM M1 $ readCons fmt $ zip conList parserList
 
 instance
     ( GVersion f, GConList f, Constructor c, GSelectors f, GSmartCopy f
@@ -487,7 +487,7 @@ ggetSmartPutLastKnown :: forall a m. (SmartCopy a, Monad m)
                       -> Bool
                       -> Int32
                       -> [String]
-                      -> m (a -> m())
+                      -> m (a -> m ())
 ggetSmartPutLastKnown fmt isDup prevVer allIds =
     checkConsistency aProxy $
     case kindFromProxy aProxy of
@@ -507,7 +507,7 @@ ggetSmartPut :: forall a m. (SmartCopy a, Monad m)
              => SerializationFormat m
              -> Bool
              -> Int32
-             -> m (a -> m())
+             -> m (a -> m ())
 ggetSmartPut fmt isDup prevVer =
     checkConsistency proxy $
     case kindFromProxy proxy of
