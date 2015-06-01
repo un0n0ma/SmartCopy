@@ -108,6 +108,10 @@ import "mtl" Control.Monad.Writer
 -- made primitive.
 class SmartCopy a where
 -- Dokumentation fehlt
+    -- |A unique String identifier that should be given by convention and
+    -- remain unaffected by type evolution. Required for ensuring back-
+    -- compatibility when serializing values for data exchange in distributed
+    -- systems.
     identifier :: Identifier a
     -- |The (unique) version of a datatype. Per default 0.
     version :: Version a
@@ -146,14 +150,16 @@ class SmartCopy a where
 class GSmartCopy t where
     -- |Generic serialization function that can be used with compilers supporting
     -- DeriveGeneric and DefaultSignatures.
-    -- Deriving Datatypes are per default serialized in a manner
+    -- Derived datatypes are per default serialized in a manner
     -- compatible with TemplateHaskell-generated SafeCopy instances.
-    -- As version tags are written out as a side-effect when returning the putter
-    -- for a field, deriveSafeCopy-compatibility requires an additional wrapper
-    -- around the constructed putter.
-    -- What putter? The function below does not mention any putters.
-    -- Comments for the arguments would be good
-    -- And what is this crazy return type with two nested ms?
+    -- This means that version tags are written as a side effect in a call of
+    -- mkPutter. Since mkPutter can only be called in the instance representing
+    -- a constant constructor argument, side effects are bound to be performed
+    -- in the wrong position. This is avoided with an additional wrapper around
+    -- mkPutter, encapsulating side effects, so that they can be unpacked
+    -- in the constructor instance.
+    -- As a result, the return type of the generic serialization function has to
+    -- be m (m (t x -> m ()).
     gwriteSmart :: Monad m
                 => SerializationFormat m
                 -> t x
@@ -164,14 +170,16 @@ class GSmartCopy t where
                 -> m (m (t x -> m ()))
     -- |Generic parsing function that can be used with compilers supporting
     -- DeriveGeneric and DefaultSignatures.
-    -- Deriving Datatypes are per default parsed in a manner
+    -- Derived datatypes are per default parsed in a manner
     -- compatible with TemplateHaskell-generated SafeCopy instances.
-    -- As version tags are read as a side-effect when returning the getter
-    -- for a field, deriveSafeCopy-compatibility requires an additional wrapper
-    -- around the constructed getter.
-    -- What getter? The function below does not mention any getters.
-    -- Comments for the arguments would be good    
-    -- And what is this crazy return type with three nested ms?
+    -- This means that version tags are read as a side effect in a call of
+    -- mkGetter. Since mkGetter can only be called in the instance representing
+    -- a constant constructor argument, side effects are bound to be performed
+    -- in the wrong position. This is avoided with an additional wrapper around
+    -- mkGetter, encapsulating side effects, so that they can be unpacked
+    -- in the constructor instance.
+    -- As a result, the return type of the generic parsing function has to be
+    -- m (m (m (t x))).
     greadSmart :: (Functor m, Applicative m, Monad m, Alternative m)
                => ParseFormat m
                -> [ConstrInfo]
@@ -200,9 +208,16 @@ data SerializationFormat m
       -- should be saved.
       -- If mkPutter is called with True the version tag is written as side-effect
       -- right after writing the constructor tag.
-      -- All so far implemented formats but SafeCopy and String format don't make
-      -- this discrimination for duplicate types.
-      -- document arguments
+      -- Out of the so far implemented formats only the SafeCopy and String format
+      -- make this discrimination for duplicate types.
+      -- Arguments: 
+      -- * Bool: see above
+      -- * Int32: version of the target putter
+      -- * Maybe [String]: List of all identifiers known to a system when
+      -- serializing data in a back-compatible way (for use in distributed
+      -- systems). Can be disregarded in base variants of serialization formats
+      -- that don't make use of this feature. However, passing Nothing in a
+      -- back-compatible format implementation will throw an error.
       mkPutter :: SmartCopy a => Bool -> Int32 -> Maybe [String] ->  m (a -> m ())
       -- |Write out constructor information to a datatype as required in the
       -- specified format.
@@ -214,7 +229,9 @@ data SerializationFormat m
       -- |Write a list according to the specifications of the format. As all list
       -- elements are required to have the same version, the version tag is usually
       -- written out only once for the entire list.
-      -- what's the Maybe [String] argument good for
+      -- The Maybe [String] parameter is required for recursive calls to the
+      -- serialization functions in back-compatible format implementations. Is
+      -- disregarded in variants not making use of the feature.
     , writeRepetition :: SmartCopy a => [a] -> Maybe [String] -> m ()
       -- |Serialize an Int primitive.
     , writeInt :: Int -> m ()
@@ -254,9 +271,15 @@ data ParseFormat m
       -- second (version) parameter.
       -- If mkGetter is called with True the version tag is read as side-effect
       -- right after reading the constructor tag.
-      -- All so far implemented formats but SafeCopy and String format don't make
-      -- this discrimination for duplicate types. --double negation, difficult to understand
-      -- document the argument types
+      -- Out of the formats implemented so far only SafeCopy and String format
+      -- make this distinction for duplicate types.
+      -- Arguments:
+      -- * Bool: see above
+      -- * Int32: version to be used for constructing a getter if a types
+      -- version should not be read from the data. This is the case
+      -- when an optimization strategy is used, saving version tags of
+      -- repeatedly occuring types. May be disregarded in formats not making
+      -- use of this strategy.
       mkGetter :: SmartCopy a => Bool -> Int32 -> Maybe Int32 -> m (m a)
       -- |Read constructor information and parse a datatype accordingly.
       -- readCons is called with a map that contains a parser for each possible
