@@ -363,7 +363,7 @@ data ConstrInfo
     { cname :: T.Text
     , cfields :: Fields
     , ctagged :: Bool
-    , cindex :: Integer -- Int would be more common
+    , cindex :: Integer
     , cidentifier :: String
     }
     deriving (Show, Eq)
@@ -374,11 +374,8 @@ data ConstrInfo
 -- LF (for Labeled Fields) indicates that a constructor has labeled fields
 -- given by a list of labels.
 -- This distinction should be sufficient for most formats, however Aeson
--- compatibility needs the additional alternative Empty, characterizing datatypes
--- where all constructors have 0 fields (as opposed to datatypes where at least
--- one constructor has more than 0 fields).
--- In the JSON format NF-0-field types are generally serialized as empty arrays,
--- whereas Empty-field-types are serialized as "String $ConName".
+-- compatibility needs the additional alternative Empty for enumerated types
+-- (all constructors have 0 fields).
 data Fields = NF Int
             | LF [Label]
             | Empty
@@ -497,17 +494,20 @@ class (SmartCopy (MigrateFrom a)) => Migrate a where
     -- |Type to be extended.
     type MigrateFrom a
     -- |Migrate function that specifies how to migrate from an older version of
-    -- |a datatype to its newer one.
+    -- a datatype to its newer one.
     migrateFwd :: MigrateFrom a -> a
+    -- |Migrate function that specifies how to migrate from a newer version back
+    -- to an older version of a datatype. Needed for back-compatible
+    -- serialization.
     migrateBack :: a -> MigrateFrom a
         
 -- | Simple Version ID.
 newtype Version a = Version { unVersion :: Int32 } deriving (Eq, Show)
 
--- | A unique string representing a type at one particular version.
--- With this addition it can be made sure that when exchanging data
+-- | A unique String representing a type at one particular version.
+-- With this addition it can be ensured that when exchanging data
 -- in a distributed system, everything is serialized in the latest version
---s till known by a component in a deprecated state.
+-- still known by a component in a deprecated state.
 newtype Identifier a = ID { unId :: String } deriving (Eq, Show)
 
 instance S.Serialize (Version a) where
