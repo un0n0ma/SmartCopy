@@ -1,0 +1,67 @@
+name:                smartcopy
+version:             0.1.0.0
+synopsis:            Format-generic serialization
+license:             GPL-3
+license-file:        LICENSE
+author:              Ursula Nothdurft
+maintainer:          nothdurft@cp-med.com
+category:            Data
+build-type:          Simple
+cabal-version:       >=1.10
+
+
+library
+  exposed-modules:     
+    Data.SmartCopy
+    Data.SmartCopy.Formats.JSON
+    Data.SmartCopy.Formats.SafeCopy
+    Data.SmartCopy.Formats.String
+    Data.SmartCopy.Formats.XmlLike
+  other-modules:
+    Data.SmartCopy.Generic,
+    Data.SmartCopy.Instances,
+    Data.SmartCopy.MonadTypesInstances,
+    Data.SmartCopy.SmartCopy
+  other-extensions:    
+    DataKinds,
+    DefaultSignatures,
+    FlexibleContexts,
+    FlexibleInstances,
+    GADTs,
+    KindSignatures,
+    MultiParamTypeClasses,
+    OverlappingInstances,
+    OverloadedStrings,
+    PackageImports,
+    PolyKinds,
+    RankNTypes,
+    ScopedTypeVariables,
+    TypeFamilies,
+    TypeOperators,
+    UndecidableInstances
+  build-depends:       
+    aeson >=0.8 && <0.9,
+    aeson-utils >=0.3 && <0.4,
+    base >=4.6 && <4.7,
+    bytestring >=0.10 && <0.11,
+    cereal >=0.4 && <0.5,
+    containers >=0.5 && <0.6, 
+    generic-deriving >=1.7 && <1.8,
+    hashable >=1.2 && <1.3, 
+    hashmap >=1.3 && <1.4,
+    mtl,
+    MissingH >=1.3 && <1.4, 
+    monad-loops >=0.4 && <0.5,
+    parsec >=3.1 && <3.2,
+    safecopy >=0.8 && <0.9,
+    scientific >=0.3 && <0.4,
+    tagged >=0.8 && <0.9, 
+    text >=1.2 && <1.3, 
+    transformers >=0.4 && <0.5, 
+    unordered-containers >=0.2 && <0.3, 
+    vector >=0.10 && <0.11,
+    word8 >=0.1 && <0.2,
+    xml-conduit >=1.2 && <1.3
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  
