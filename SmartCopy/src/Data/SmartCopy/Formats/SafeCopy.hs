@@ -156,14 +156,10 @@ pFormat :: ParseFormat Get
 pFormat
     = ParseFormat
     { mkGetter =
-          \b dupVers prevVers ->
+          \b dupVers ->
               if b 
                  then do v <- liftM Version S.get
-                         let v' =
-                                case prevVers of
-                                  Just prev -> Version prev
-                                  Nothing -> v
-                         case constructGetterFromVersion pFormat v' kind of
+                         case constructGetterFromVersion pFormat v kind of
                            Right getter -> return getter
                            Left msg -> fail msg
                  else either fail return $
@@ -223,7 +219,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , readRepetition =
           do n <- S.get
              getSmartGet pFormatUnvers >>= replicateM n

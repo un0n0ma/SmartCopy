@@ -222,23 +222,16 @@ sFormatBackComp
 pFormatBackComp
     = pFormat
     { mkGetter =
-          \_ dupVers prevVers ->
+          \_ dupVers ->
               return $
               do (version, rest) <- readVersion
-                 case prevVers of
-                   Just p ->
-                       case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                 case version of
+                   Just v ->
+                       case constructGetterFromVersion pFormatBackComp v kind of
                          Right getter ->
                              local (const rest) getter 
                          Left msg -> fail msg
-                   Nothing ->
-                       case version of
-                         Just v ->
-                             case constructGetterFromVersion pFormatBackComp v kind of
-                               Right getter ->
-                                   local (const rest) getter 
-                               Left msg -> fail msg
-                         Nothing -> readSmart pFormatBackComp
+                   Nothing -> readSmart pFormatBackComp
     , readCons =
           \cons ->
               do val <- ask
@@ -478,23 +471,16 @@ pFormat :: ParseFormat (FailT (ReaderT Json.Value (StateT Json.Value CurrentFiel
 pFormat
     = ParseFormat
     { mkGetter =
-          \_ dupVers prevVers ->
+          \_ dupVers ->
               return $
               do (version, rest) <- readVersion
-                 case prevVers of
-                   Just p ->
-                       case constructGetterFromVersion pFormat (Version p) kind of
+                 case version of
+                   Just v ->
+                       case constructGetterFromVersion pFormat v kind of
                          Right getter ->
                              local (const rest) getter 
                          Left msg -> fail msg
-                   Nothing ->
-                       case version of
-                         Just v ->
-                             case constructGetterFromVersion pFormat v kind of
-                               Right getter ->
-                                   local (const rest) getter 
-                               Left msg -> fail msg
-                         Nothing -> readSmart pFormat
+                   Nothing -> readSmart pFormat
     , readCons =
           \cons ->
               do val <- ask
@@ -851,7 +837,7 @@ sFormatUnvers
 pFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
 pFormatUnvers
     = ParseFormat
-    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
     , readCons =
         \cons ->
             do val <- ask

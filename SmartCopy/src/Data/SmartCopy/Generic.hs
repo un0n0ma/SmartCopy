@@ -114,9 +114,9 @@ instance SmartCopy c => GSmartCopy (K1 a c) where
     greadSmart fmt _ tyVer _
         = case tyVer of
             [(Nothing, v)] ->
-                 return $ liftM (liftM K1) $ mkGetter fmt False v Nothing
+                 return $ liftM (liftM K1) $ mkGetter fmt False v
             [(Just _, v)] ->
-                return $ liftM (liftM K1) $ mkGetter fmt True v Nothing
+                return $ liftM (liftM K1) $ mkGetter fmt True v
             xs ->
                 fail "Was expecting singleton list with TypeRep of a field value at " (show xs)
 

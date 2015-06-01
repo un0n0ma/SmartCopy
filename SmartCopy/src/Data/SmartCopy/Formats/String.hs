@@ -198,23 +198,17 @@ sFormatBackComp
 pFormatBackComp
     = pFormat
     { mkGetter =
-          \b dupVers prevVers ->
+          \b dupVers ->
               if b
                  then
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
-                        case prevVers of
-                          Just p ->
-                              case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                        case version of
+                          Just v -> 
+                              case constructGetterFromVersion pFormatBackComp v kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
-                          Nothing ->
-                              case version of
-                                Just v -> 
-                                    case constructGetterFromVersion pFormatBackComp v kind of
-                                            Right getter -> return getter
-                                            Left msg -> fail msg
-                                Nothing -> return $ readSmart pFormatBackComp
+                          Nothing -> return $ readSmart pFormatBackComp
                  else either fail return $
                       constructGetterFromVersion pFormatBackComp (Version dupVers) kind
     , readCons =
@@ -311,23 +305,17 @@ pFormat :: ParseFormat (FailT (State String))
 pFormat
     = ParseFormat
     { mkGetter =
-          \b dupVers prevVers ->
+          \b dupVers ->
               if b
                  then
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
-                        case prevVers of
-                          Just p ->
-                              case constructGetterFromVersion pFormat (Version p) kind of
+                        case version of
+                          Just v -> 
+                              case constructGetterFromVersion pFormat v kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
-                          Nothing ->
-                              case version of
-                                Just v -> 
-                                    case constructGetterFromVersion pFormat v kind of
-                                            Right getter -> return getter
-                                            Left msg -> fail msg
-                                Nothing -> return $ readSmart pFormat
+                          Nothing -> return $ readSmart pFormat
                  else either fail return $
                       constructGetterFromVersion pFormat (Version dupVers) kind
     , readCons =

@@ -280,7 +280,7 @@ data ParseFormat m
       -- when an optimization strategy is used, saving version tags of
       -- repeatedly occuring types. May be disregarded in formats not making
       -- use of this strategy.
-      mkGetter :: SmartCopy a => Bool -> Int32 -> Maybe Int32 -> m (m a)
+      mkGetter :: SmartCopy a => Bool -> Int32 -> m (m a)
       -- |Read constructor information and parse a datatype accordingly.
       -- readCons is called with a map that contains a parser for each possible
       -- constructor. The ConstrInfo record type has information required for a
@@ -443,7 +443,7 @@ getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ readSmart fmt
-      kind -> mkGetter fmt True 0 Nothing
+      kind -> mkGetter fmt True 0
       where proxy = Proxy :: Proxy a
 
 -- |Serialize a versioned datatype (and all inner datatypes) in the latest 

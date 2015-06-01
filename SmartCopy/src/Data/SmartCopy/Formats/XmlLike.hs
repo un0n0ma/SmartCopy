@@ -153,7 +153,7 @@ sFormatUnvers
 
 pFormatUnvers
     = pFormat
-    { mkGetter = \_ _ _ -> return $ readSmart pFormatUnvers
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
     , readRepetition =
           do nodes <- lift $ lift $ lift get
              el' <- lift $ lift get
@@ -273,7 +273,7 @@ sFormatBackComp
 pFormatBackComp
     = pFormat
     { mkGetter =
-          \_ _ prevVers ->
+          \_ _ ->
               do nodeElems <- get
                  case nodeElems of
                    [] ->
@@ -285,23 +285,15 @@ pFormatBackComp
                                 return $ readSmart pFormatBackComp
                             X.NodeElement el ->
                                 do vers <- readVersion el
-                                   case prevVers of
-                                     Just p ->
-                                         case constructGetterFromVersion pFormatBackComp (Version p) kind of
+                                   case vers of
+                                     Just v ->
+                                         case constructGetterFromVersion pFormatBackComp v kind of
                                            Right getter ->
                                                return getter
                                            Left msg ->
                                                fail msg
-                                     Nothing ->
-                                         case vers of
-                                           Just v ->
-                                               case constructGetterFromVersion pFormatBackComp v kind of
-                                                 Right getter ->
-                                                     return getter
-                                                 Left msg ->
-                                                     fail msg
-                                           Nothing -> 
-                                               return $ readSmart pFormatBackComp
+                                     Nothing -> 
+                                         return $ readSmart pFormatBackComp
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
     , readCons =
@@ -485,7 +477,7 @@ pFormat :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]
 pFormat
     = ParseFormat
     { mkGetter =
-          \_ _ prevVers ->
+          \_ _ ->
               do nodeElems <- get
                  case nodeElems of
                    [] ->
@@ -497,23 +489,15 @@ pFormat
                                 return $ readSmart pFormat
                             X.NodeElement el ->
                                 do vers <- readVersion el
-                                   case prevVers of
-                                     Just p ->
-                                         case constructGetterFromVersion pFormat (Version p) kind of
+                                   case vers of
+                                     Just v ->
+                                         case constructGetterFromVersion pFormat v kind of
                                            Right getter ->
                                                return getter
                                            Left msg ->
                                                fail msg
-                                     Nothing ->
-                                         case vers of
-                                           Just v ->
-                                               case constructGetterFromVersion pFormat v kind of
-                                                 Right getter ->
-                                                     return getter
-                                                 Left msg ->
-                                                     fail msg
-                                           Nothing -> 
-                                               return $ readSmart pFormat
+                                     Nothing -> 
+                                         return $ readSmart pFormat
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
     , readCons =
