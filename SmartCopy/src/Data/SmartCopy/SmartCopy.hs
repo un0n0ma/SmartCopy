@@ -19,10 +19,10 @@
 --
 -- Maintainer  :  nothdurft@cp-med.com
 --
--- SmartCopy provides an interface for implementing various (de-)serialization
+-- smartcopy provides an interface for implementing various (de-)serialization
 -- formats and comes with implementations of JSON, Binary, XML and String
 -- formats. Data.SafeCopy-style version control is supported and extended with
--- back-migration, which can be useful in distributed system use-cases.
+-- back-migration, which can be useful in distributed system use cases.
 module Data.SmartCopy.SmartCopy
        ( SmartCopy (..)
        , GSmartCopy (..)
