@@ -92,8 +92,8 @@ instance
     gwriteSmart fmt (M1 a) _ tyVer ident mIds
         = liftM (liftM (\g (M1 a) -> withField fmt $ g a)) $
             gwriteSmart fmt a [] tyVer ident mIds
-    greadSmart fmt _ tyVer [ident]
-        = liftM (liftM (readField fmt . liftM M1)) $ greadSmart fmt [] tyVer [ident]
+    greadSmart fmt _ tyVer ident
+        = liftM (liftM (readField fmt . liftM M1)) $ greadSmart fmt [] tyVer ident
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
     gwriteSmart fmt (K1 a) _ tyVer _ mIds
@@ -152,14 +152,13 @@ instance
           liftM2 (liftM2 $ \gA gB (_:*:_) -> gA a >> gB b)
               (gwriteSmart fmt a [] tvL idsL mIds)
               (gwriteSmart fmt b [] tvR idsR mIds)
-    greadSmart fmt conList tyVer (id:ids)
-        = case tyVer of
-            (x:xs) ->
-                liftM2 (liftM2 (liftM2 (:*:)))
-                  (greadSmart fmt [] [x] [id])
-                  (greadSmart fmt [] xs ids)
-            f ->
-                fail ("Was expecting list with TypeReps of field values at " ++ show f)
+    greadSmart fmt conList tvs ids
+        = let (tvL, tvR) = splitAt (length tvs `div` 2) tvs
+              (idsL, idsR) = splitAt (length ids `div` 2) ids
+          in
+          liftM2 (liftM2 (liftM2 (:*:)))
+            (greadSmart fmt [] tvL idsL)
+            (greadSmart fmt [] tvR idsR)
 
 -------------------------------------------------------------------------------
 -- Helper functions/types for accessing selector and constructor information
