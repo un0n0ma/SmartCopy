@@ -67,8 +67,8 @@ instance
     gwriteSmart fmt con@(M1 x) [] _ [id] mIds --- single constructor
         = do [tyVer'] <- gversions (P.Proxy :: P.Proxy f) mIds
              [selIds] <- ggetId (P.Proxy :: P.Proxy f) mIds
-             [cons] <- mkGConList (P.Proxy :: P.Proxy (M1 C c f)) 0 id
              let tyVer = dupRepsToNothing tyVer'
+             [cons] <- mkGConList (P.Proxy :: P.Proxy (M1 C c f)) 0 id
              return $ return $ \(M1 x) -> withCons fmt cons $
                do wrapped <- gwriteSmart fmt x [] tyVer selIds mIds
                   putter <- wrapped
@@ -89,9 +89,9 @@ instance
 instance
     (Selector s, GSmartCopy f, GVersion f)
     => GSmartCopy (M1 S s f) where
-    gwriteSmart fmt (M1 a) _ tyVer [ident] mIds
+    gwriteSmart fmt (M1 a) _ tyVer ident mIds
         = liftM (liftM (\g (M1 a) -> withField fmt $ g a)) $
-            gwriteSmart fmt a [] tyVer [ident] mIds
+            gwriteSmart fmt a [] tyVer ident mIds
     greadSmart fmt _ tyVer [ident]
         = liftM (liftM (readField fmt . liftM M1)) $ greadSmart fmt [] tyVer [ident]
 
@@ -145,14 +145,13 @@ instance
 instance
     (GSmartCopy a, GSmartCopy b, GVersion a, GVersion b)
     => GSmartCopy (a :*: b) where
-    gwriteSmart fmt (a :*: b) _ tyVer (id:ids) mIds
-        = case tyVer of
-            (x:xs) ->
-                liftM2 (liftM2 $ \gA gB (_:*:_) -> gA a >> gB b)
-                   (gwriteSmart fmt a [] [x] [id] mIds)
-                   (gwriteSmart fmt b []  xs ids mIds)
-            f -> return $ return $ return $
-                 mismatch "list with TypeReps of field values at " (show f)
+    gwriteSmart fmt (a :*: b) _ tvs ids mIds
+        = let (tvL, tvR) = splitAt (length tvs `div` 2) tvs
+              (idsL, idsR) = splitAt (length ids `div` 2) ids
+          in
+          liftM2 (liftM2 $ \gA gB (_:*:_) -> gA a >> gB b)
+              (gwriteSmart fmt a [] tvL idsL mIds)
+              (gwriteSmart fmt b [] tvR idsR mIds)
     greadSmart fmt conList tyVer (id:ids)
         = case tyVer of
             (x:xs) ->
@@ -412,7 +411,6 @@ instance
     => GParserList (M1 C c f) where
     mkGParserList fmt _ mIds =
         do [tyVer'] <- gversions (P.Proxy :: P.Proxy (M1 C c f)) mIds
-           [ids] <- ggetId (P.Proxy :: P.Proxy f) mIds
            [ids] <- ggetId (P.Proxy :: P.Proxy f) mIds
            let tyVer = dupRepsToNothing tyVer'
            return [liftM M1 (join $ join $ greadSmart fmt [] tyVer ids)]
