@@ -73,6 +73,9 @@ decodeUnvers bs = maybe (Fail $ decodeErr bs) parseUnvers (Json.decode bs :: May
 decodeSmart :: SmartCopy a => LBS.ByteString -> Fail a
 decodeSmart bs = maybe (Fail $ decodeErr bs) parseSmart (Json.decode bs :: Maybe Json.Value)
 
+decodeLastKnown :: SmartCopy a => LBS.ByteString -> Fail a
+decodeLastKnown bs = maybe (Fail $ decodeErr bs) parseLastKnown (Json.decode bs :: Maybe Json.Value)
+
 decodeErr bs = "Failed while decoding ByteString " ++ show bs ++ " into Json Value."
 
 -- |Serialize a datatype as a JSON value without handling its version and encode
@@ -85,6 +88,8 @@ encodeUnvers = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeUnvers
 encodeSmart :: SmartCopy a => a -> LBS.ByteString
 encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
 
+encodeLastKnown :: SmartCopy a => a -> [String] -> LBS.ByteString
+encodeLastKnown mIds = encodeUtf8 . toLazyText . encodeToTextBuilder . (serializeLastKnown mIds)
 -------------------------------------------------------------------------------
 --  Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
