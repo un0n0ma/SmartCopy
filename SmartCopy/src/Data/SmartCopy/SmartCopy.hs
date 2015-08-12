@@ -49,7 +49,6 @@ module Data.SmartCopy.SmartCopy
        , Version (..)
        , Kind (..)
        , Identifier (..)
-       , Reverse
        , Proxy (..)
        , versionFromProxy
        , kindFromProxy
@@ -71,28 +70,19 @@ import Data.SmartCopy.MonadTypesInstances
 -------------------------------------------------------------------------------
 import Data.Int (Int32)
 import Data.List (nub)
-import Data.Text.Internal as T
-import Text.Parsec hiding (Empty)
+import Data.Text as T hiding (concat)
 
 import qualified Data.ByteString as BS
-import qualified Data.Map as M
-import qualified Data.SafeCopy as SC
 import qualified Data.Serialize as S
 
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
 import Control.Applicative
-import Control.Monad.IO.Class
 import Data.Data hiding (Proxy)
-import Data.Typeable hiding (Proxy)
 import GHC.Generics
-import Unsafe.Coerce
 
 import "mtl" Control.Monad.Identity
-import "mtl" Control.Monad.Reader
-import "mtl" Control.Monad.Trans (MonadTrans(..))
-import "mtl" Control.Monad.Writer
 
 -------------------------------------------------------------------------------
 -- SmartCopy and Generic SmartCopy type classes
@@ -139,7 +129,7 @@ class SmartCopy a where
                       , Alternative m)
                       => ParseFormat m -> m a
     readSmart fmt
-        = do wrapped <- greadSmart fmt [] [] [unId (identifier :: Identifier a)] 
+        = do wrapped <- greadSmart fmt [] [] [unId (identifier :: Identifier a)]
              getter <- wrapped
              fmap to getter
 
@@ -210,7 +200,7 @@ data SerializationFormat m
       -- right after writing the constructor tag.
       -- Out of the so far implemented formats only the SafeCopy and String format
       -- make this discrimination for duplicate types.
-      -- Arguments: 
+      -- Arguments:
       -- * Bool: see above
       -- * Int32: version of the target putter
       -- * Maybe [String]: List of all identifiers known to a system when
@@ -333,11 +323,6 @@ noCons = fail "No constructor found during look-up."
 vNotFoundGetter :: String -> String
 vNotFoundGetter s = "Cannot find getter associated with version " ++ s ++ "."
 
--- |Error message for when an invalid version tag is passed on during
--- serializing.
-vNotFoundPutter :: String -> String
-vNotFoundPutter s = "Cannot find putter associated with version " ++ s ++ "."
-
 -- |Error message indicating that during back-compatible serialization no known
 -- version of a datatype could be found.
 idNotFoundPutter :: String -> [String] -> String
@@ -346,6 +331,7 @@ idNotFoundPutter s1 s2 =
 
 -- |Error message for when a back-compatible format is used without a list of
 -- known datatype IDs.
+noIDListErr :: String -> String
 noIDListErr s
     = "Failed during back-compatible serialization of: " ++ s ++ ". Got no identifier list."
 
@@ -440,12 +426,12 @@ getSmartGet fmt =
     checkConsistency proxy $
     case kindFromProxy proxy of
       Primitive -> return $ readSmart fmt
-      kind -> mkGetter fmt True 0
+      _kind -> mkGetter fmt True 0
       where proxy = Proxy :: Proxy a
 
--- |Serialize a versioned datatype (and all inner datatypes) in the latest 
+-- |Serialize a versioned datatype (and all inner datatypes) in the latest
 -- version that is known by a communicating component.
--- To account for the possibility that constructor names of evolved datatypes may 
+-- To account for the possibility that constructor names of evolved datatypes may
 -- change the identifier of a SmartCopy instance is looked up in a list of
 -- known identifiers.
 smartPutLastKnown :: forall a m. (SmartCopy a, Monad m)
@@ -475,7 +461,7 @@ getSmartPutLastKnown fmt allIds =
              if elem thisId allIds
                 then mkPutter fmt True thisV (Just allIds)
                 else fail (idNotFoundPutter thisId allIds)
-         Extends bProxy ->
+         Extends _bProxy ->
              if elem thisId allIds
                 then mkPutter fmt True thisV (Just allIds)
                 else liftM (. migrateBack) (getSmartPutLastKnown fmt allIds)
@@ -499,8 +485,8 @@ class (SmartCopy (MigrateFrom a)) => Migrate a where
     -- |Migrate function that specifies how to migrate from a newer version back
     -- to an older version of a datatype. Needed for back-compatible
     -- serialization.
-    migrateBack :: a -> MigrateFrom a
-        
+    migrateBack :: a -> MigrateFrom a 
+
 -- | Simple Version ID.
 newtype Version a = Version { unVersion :: Int32 } deriving (Eq, Show)
 
@@ -527,12 +513,12 @@ instance Ord (Version a) where
     Version a <= Version b = a <= b
 
 instance Show (Kind a) where
-    
+    show Primitive = "Primitive"
+    show Base = "Base"
+    show (Extends _) = "Extends"
+
 castVersion :: Version a -> Version b
 castVersion (Version a) = Version a
-
--- | Wrapper type used migrating backwards in the chain of compatible types.
-newtype Reverse a = Reverse { unReverse :: a }
 
 -- |A datatype's kind specifies how version control is handled.
 -- For a type of kind Primitive, no version tag is written out
@@ -546,23 +532,12 @@ data Kind a where
     Primitive :: Kind a
     Base :: Kind a
     Extends   :: Migrate a => Proxy (MigrateFrom a) -> Kind a
-    Extended  :: (Migrate (Reverse a)) => Kind a -> Kind a
 
 -- |The Extension kind lets the system know that a previous version
 -- of the datatype exists. There can only be one direct predecessor
 -- but it is possible to have chains of extensions.
 extension :: (SmartCopy a, Migrate a) => Kind a
 extension = Extends Proxy
-
--- |The extendedExtension kind lets the system know that there are
--- at least one future and previous version of this type.
-extendedExtension :: (SmartCopy a, Migrate a, Migrate (Reverse a)) => Kind a
-extendedExtension = Extended extension
-
--- |The extendedBase kind lets the system know that there is
--- at least one future version of this type.
-extendedBase :: (Migrate (Reverse a)) => Kind a
-extendedBase = Extended base
 
 -- |The default type that is not an extension to any other type.
 base :: Kind a
@@ -601,19 +576,6 @@ constructGetterFromVersion fmt diskV origK =
             Extends bProxy ->
                 do previousGetter <- worker fmt fwd (castVersion diskV) (kindFromProxy bProxy)
                    return $ fmap migrateFwd previousGetter
-            Extended{} | fwd -> Left $ vNotFoundGetter (show thisV)
-            Extended aKind ->
-                do let revProxy :: Proxy (MigrateFrom (Reverse a))
-                       revProxy = Proxy
-                       forwardGetter :: Either String (m a)
-                       forwardGetter
-                           = fmap (unReverse . migrateFwd) <$>
-                             worker fmt True (castVersion thisV) (kindFromProxy revProxy)
-                       previousGetter :: Either String (m a)
-                       previousGetter = worker fmt fwd (castVersion thisV) aKind
-                   case forwardGetter of
-                     Left{} -> previousGetter
-                     Right val -> Right val
 
 -------------------------------------------------------------------------------
 -- Proxy type and helper functions
@@ -689,7 +651,7 @@ availableVersions :: SmartCopy a => Proxy a -> [Int32]
 availableVersions aProxy =
     worker True (kindFromProxy aProxy)
     where worker :: SmartCopy b => Bool -> Kind b -> [Int32]
-          worker fwd bKind =
+          worker _ bKind =
               case bKind of
                 Primitive -> []
                 Base -> [unVersion (versionFromKind bKind)]

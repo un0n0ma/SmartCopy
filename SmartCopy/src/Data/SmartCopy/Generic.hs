@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |Derive SmartCopy instances using the Generics package and the 
+-- |Derive SmartCopy instances using the Generics package and the
 -- DefaultSignatures and DeriveGeneric extensions.
 module Data.SmartCopy.Generic () where
 
@@ -23,8 +23,6 @@ import Data.SmartCopy.SmartCopy
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
 import Data.Int
-import Data.Tree
-import Text.Parsec (try)
 
 import qualified Data.List as L
 import qualified Data.Text as T
@@ -35,8 +33,6 @@ import qualified Data.Text as T
 import Control.Applicative
 import Control.Monad
 import Data.Data hiding (Proxy)
-import Data.Typeable hiding (Proxy)
-import Data.Maybe
 import GHC.Generics
 import Generics.Deriving.ConNames
 
@@ -46,25 +42,31 @@ import qualified Data.Proxy as P
 -- Rep instances
 -------------------------------------------------------------------------------
 instance GSmartCopy U1 where
-    gwriteSmart fmt _ _ _ _ _ = return $ return (\U1 -> return ())
-    greadSmart fmt _ _ _ = return $ return $ return U1
+    gwriteSmart _ _ _ _ _ _ = return $ return (\U1 -> return ())
+    greadSmart _ _ _ _ = return $ return $ return U1
 
 instance
     (GVersion f, Datatype d, GParserList f, GSelectors f, GSmartCopy f, GConList f)
     => GSmartCopy (M1 D d f) where
-    gwriteSmart fmt d@(M1 x) _ _ [ident] mIds
+    gwriteSmart fmt (M1 x) _ _ [ident] mIds
         = liftM (liftM (\g (M1 x) -> g x)) $ gwriteSmart fmt x [] [] [ident] mIds
+    gwriteSmart _ (M1 _) _ _ ids _
+        = fail $ "Was given an unexpected number of identifiers:" ++ show ids ++
+                 ". This should not have happened."
     greadSmart fmt _ _ [ident]
         = return $ return $
             do conList <- mkGConList (P.Proxy :: P.Proxy f) 0 ident
                parserList <- mkGParserList fmt (undefined :: f x) Nothing
                liftM M1 $ readCons fmt $ zip conList parserList
+    greadSmart _ _ _ ids
+        = fail $ "Was given an unexpected number of identifiers:" ++ show ids ++
+                 ". This should not have happened."
 
 instance
     ( GVersion f, GConList f, Constructor c, GSelectors f, GSmartCopy f
     , GGetIdentifier f )
     => GSmartCopy (M1 C c f) where
-    gwriteSmart fmt con@(M1 x) [] _ [id] mIds --- single constructor
+    gwriteSmart fmt (M1 _) [] _ [id] mIds --- single constructor
         = do [tyVer'] <- gversions (P.Proxy :: P.Proxy f) mIds
              [selIds] <- ggetId (P.Proxy :: P.Proxy f) mIds
              let tyVer = dupRepsToNothing tyVer'
@@ -73,7 +75,7 @@ instance
                do wrapped <- gwriteSmart fmt x [] tyVer selIds mIds
                   putter <- wrapped
                   putter x
-    gwriteSmart fmt con@(M1 x) [cons] _ _ mIds --- sumtype constructor
+    gwriteSmart fmt (M1 _) [cons] _ _ mIds --- sumtype constructor
         = do [tyVer'] <- gversions (P.Proxy :: P.Proxy f) mIds
              [selIds] <- ggetId (P.Proxy :: P.Proxy f) mIds
              let tyVer = dupRepsToNothing tyVer'
@@ -81,9 +83,14 @@ instance
                do wrapped <- gwriteSmart fmt x [] tyVer selIds mIds
                   getter <- wrapped
                   getter x
-    greadSmart fmt [] _ _
+    gwriteSmart _ (M1 _) [] _ ids _
+        = fail $ "Got more than one identifier at " ++ show ids
+    gwriteSmart _ (M1 _) _ _ _ _
+        = fail $ "Found multiple constructor indices to write for one\
+                 \single constructor. This should not have happened."
+    greadSmart _ [] _ _
         = undefined
-    greadSmart fmt conList _ _
+    greadSmart _ _ _ _
         = undefined
 
 instance
@@ -96,7 +103,7 @@ instance
         = liftM (liftM (readField fmt . liftM M1)) $ greadSmart fmt [] tyVer ident
 
 instance SmartCopy c => GSmartCopy (K1 a c) where
-    gwriteSmart fmt (K1 a) _ tyVer _ mIds
+    gwriteSmart fmt (K1 _) _ tyVer _ mIds
         = let putter =
                   case mIds of
                     Just allIds ->
@@ -139,7 +146,9 @@ instance
                    = toInteger $ length conList - 1
              _:conListR <- mkGConList (P.Proxy :: P.Proxy (a :+: b)) conInd ident
              liftM (liftM $ \g (R1 x) -> g x) $ gwriteSmart fmt x conListR [] [ident] mIds
-    greadSmart fmt conList _ _
+    gwriteSmart _fmt _ _conList _ idents _mIds
+        = fail $ "Got more identifiers than expected at " ++ show idents
+    greadSmart _ _ _ _
         = undefined
 
 instance
@@ -152,7 +161,7 @@ instance
           liftM2 (liftM2 $ \gA gB (_:*:_) -> gA a >> gB b)
               (gwriteSmart fmt a [] tvL idsL mIds)
               (gwriteSmart fmt b [] tvR idsR mIds)
-    greadSmart fmt conList tvs ids
+    greadSmart fmt _conList tvs ids
         = let (tvL, tvR) = splitAt (length tvs `div` 2) tvs
               (idsL, idsR) = splitAt (length ids `div` 2) ids
           in
@@ -185,7 +194,8 @@ instance
         = do fields1 <-
                  getFields conInd $ selectors (P.Proxy :: P.Proxy (M1 C c1 f :+: M1 C c2 g)) conInd
              fields2 <-
-                 getFields (conInd + 1) $ selectors (P.Proxy :: P.Proxy (M1 C c1 g :+: M1 C c2 g)) conInd
+                 getFields (conInd + 1) $
+                     selectors (P.Proxy :: P.Proxy (M1 C c1 g :+: M1 C c2 g)) conInd
              let f1
                    | fields1 == Empty && fields2 == Empty
                    = Empty
@@ -221,7 +231,8 @@ instance
                    = NF 0
                    | otherwise
                    = fields1
-             return $ CInfo (T.pack $ conName (undefined :: M1 C c f p)) f1 True conInd ident : consB
+             return $
+                 CInfo (T.pack $ conName (undefined :: M1 C c f p)) f1 True conInd ident : consB
 
 instance (GConList f, Selector s) => GConList (M1 S s f) where
     mkGConList _ = mkGConList (P.Proxy :: P.Proxy f)
@@ -247,13 +258,13 @@ class GSelectors (rep :: * -> *) where
     selectors :: P.Proxy rep -> Integer -> [(Integer, [String])]
 
 instance (GSelectors f, Datatype d) => GSelectors (M1 D d f) where
-    selectors proxy = selectors (P.Proxy :: P.Proxy f)
+    selectors _proxy = selectors (P.Proxy :: P.Proxy f)
 
 instance (GSelectors f, Constructor c) => GSelectors (M1 C c f) where
-    selectors proxy = selectors (P.Proxy :: P.Proxy f)
+    selectors _proxy = selectors (P.Proxy :: P.Proxy f)
 
 instance (GSelectors a, GSelectors b) => GSelectors (a :+: b) where
-    selectors proxy conInd =
+    selectors _proxy conInd =
         selectors (P.Proxy :: P.Proxy a) conInd ++
         selectors (P.Proxy :: P.Proxy b) (conInd + 1)
 
@@ -290,13 +301,10 @@ getFields conInd sels
         Just (x:xs) ->
             case x of
               "" -> return $ NF (length (x:xs))
-              string -> return $ LF $ map T.pack (x:xs)
+              _ -> return $ LF $ map T.pack (x:xs)
         Nothing ->
             fail $ "Didn't find fields for constructor index " ++
                    show conInd ++ " in " ++ show sels
-    
-getConNames :: (Generic a, ConNames (Rep a)) => a -> [T.Text]
-getConNames = map T.pack . conNames
 
 -------------------------------------------------------------------------------
 -- Helper functions/types for accessing versions of SmartCopy instances
@@ -309,7 +317,7 @@ class GVersion (rep :: * -> *) where
     -- constructor and their type representations to eliminate duplicate
     -- types from version tagging if wished.
     gversions :: Monad m => P.Proxy rep -> Maybe [String] -> m [[(TypeRep, Int32)]]
-    
+
 instance (GVersion f, Datatype d) => GVersion (M1 D d f) where
     gversions _ = gversions (P.Proxy :: P.Proxy f)
 
@@ -322,7 +330,6 @@ instance (SmartCopy c, Typeable c, Generic c, ConNames (Rep c)) => GVersion (K1 
               do ver <- getPrevVersion aProxy allIds
                  return [[(typeOf (undefined :: c), ver)]]
         where aProxy = Proxy :: Proxy c
-              thisId = unId (identFromProxy aProxy)
               thisVer = unVersion (versionFromProxy aProxy)
 
 getPrevVersion :: (SmartCopy a, Monad m)
@@ -331,7 +338,7 @@ getPrevVersion :: (SmartCopy a, Monad m)
                -> m Int32
 getPrevVersion aProxy allIds
     = case kindFromProxy aProxy of
-        Primitive -> 
+        Primitive ->
             return thisVer
         Base ->
             if thisId `elem` allIds
@@ -366,8 +373,11 @@ instance (GVersion a, GVersion b) => GVersion (a :*: b) where
 instance GVersion U1 where
     gversions _ _ = return [[]]
 
+dupRepsToNothing :: [(TypeRep, Int32)] -> [(Maybe TypeRep, Int32)]
 dupRepsToNothing xs = dupRepsToNothing' xs []
-dupRepsToNothing' [] ls = []
+
+dupRepsToNothing' :: [(TypeRep, Int32)] -> [Maybe TypeRep] -> [(Maybe TypeRep, Int32)]
+dupRepsToNothing' [] _ = []
 dupRepsToNothing' ((x,v):xs) ls
   | Just x `elem` ls = (Nothing, v):dupRepsToNothing' xs ls
   | otherwise = (Just x, v):dupRepsToNothing' xs (Just x:ls)
@@ -433,7 +443,7 @@ instance
 instance
     (Datatype d, GGetIdentifier f) =>  GGetIdentifier (M1 D d f) where
     ggetId _ = ggetId (P.Proxy :: P.Proxy f)
-              
+
 instance
     (GGetIdentifier a, GGetIdentifier b) =>  GGetIdentifier (a :+: b) where
     ggetId _ mIds =
@@ -447,7 +457,7 @@ instance
            return [idSel ++ idRest]
 
 instance SmartCopy c => GGetIdentifier (K1 a c) where
-    ggetId proxy mIds =
+    ggetId _proxy mIds =
         checkConsistency aProxy $
         case mIds of
           Nothing ->
@@ -460,7 +470,7 @@ instance SmartCopy c => GGetIdentifier (K1 a c) where
 getPrevId :: (SmartCopy a, Monad m) => Proxy a -> [String] -> m [[String]]
 getPrevId aProxy allIds
     = case thisKind of
-        Primitive -> 
+        Primitive ->
             return [[thisId]]
         Base ->
             if thisId `elem` allIds
@@ -493,7 +503,7 @@ ggetSmartPutLastKnown fmt isDup prevVer allIds =
           if thisId `elem` allIds
              then mkPutter fmt isDup prevVer (Just allIds)
              else fail (idNotFoundPutter thisId allIds)
-      Extends bProxy ->
+      Extends _bProxy ->
           if thisId `elem` allIds
              then mkPutter fmt isDup prevVer (Just allIds)
              else liftM (. migrateBack) (ggetSmartPutLastKnown fmt isDup prevVer allIds)

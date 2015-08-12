@@ -34,7 +34,7 @@ module Data.SmartCopy
 where
 
 import Data.SmartCopy.Instances ()
-import Data.SmartCopy.MonadTypesInstances (fromOk, Fail (..))
+import Data.SmartCopy.MonadTypesInstances (fromOk)
 import Data.SmartCopy.SmartCopy
 
 -- $use
@@ -51,7 +51,7 @@ import Data.SmartCopy.SmartCopy
 --
 -- smartcopy supports nested version control in the tradition of
 -- Data.SafeCopy, using the same migration mechanism.
--- To extend a data type with a newer version, a Migrate instance has 
+-- To extend a data type with a newer version, a Migrate instance has
 -- to be declared, defining a migration function from old to new.
 -- Migrations have to be written manually. Examples can be found in
 -- TestInstancesMigrate.hs in the Tests directory. More detailed

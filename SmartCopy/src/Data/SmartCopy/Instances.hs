@@ -7,7 +7,6 @@ module Data.SmartCopy.Instances where
 -------------------------------------------------------------------------------
 -- LOCAL
 -------------------------------------------------------------------------------
-import Data.SmartCopy.Generic
 import Data.SmartCopy.SmartCopy
 
 -------------------------------------------------------------------------------
@@ -16,14 +15,12 @@ import Data.SmartCopy.SmartCopy
 import qualified Data.ByteString as BS
 import qualified Data.SafeCopy as SC
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 
 import Data.Int (Int32)
 
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import Control.Applicative
 import Control.Monad (liftM2, liftM)
 
 instance SmartCopy a => SmartCopy (SC.Prim a) where

@@ -23,15 +23,9 @@ import Data.SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
-import Data.Bits
-import Data.Char (ord)
-import Data.Int
-import Data.List (unfoldr)
 import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
-import Data.Word8
-import Data.Word
 
 import qualified Data.Serialize as S
 
@@ -40,10 +34,7 @@ import qualified Data.Serialize as S
 -------------------------------------------------------------------------------
 import "mtl" Control.Monad.State
 
-import Control.Applicative
 import Data.Maybe
-import Data.Either (rights, lefts)
-import Data.Typeable
 
 import qualified Data.ByteString as BS
 
@@ -72,7 +63,7 @@ parseUnvers = S.runGet (readSmart pFormatUnvers)
 
 -- |Check if a datatype version is known by a communicating component,
 -- indicated by its identifier being present in the list of all known
--- identifiers. Convert the latest known version of the datatype into a 
+-- identifiers. Convert the latest known version of the datatype into a
 -- versioned ByteString.
 serializeLastKnown :: SmartCopy a => a -> [String] -> BS.ByteString
 serializeLastKnown a ids = S.runPut $ smartPutLastKnown sFormatBackComp a ids
@@ -148,7 +139,7 @@ sFormat
     , writeBS = S.put
     , writeText = smartPut sFormat . encodeUtf8
     }
-    
+
 -------------------------------------------------------------------------------
 -- Versioned parsing
 -------------------------------------------------------------------------------
@@ -157,7 +148,7 @@ pFormat
     = ParseFormat
     { mkGetter =
           \b dupVers ->
-              if b 
+              if b
                  then do v <- liftM Version S.get
                          case constructGetterFromVersion pFormat v kind of
                            Right getter -> return getter
@@ -170,7 +161,7 @@ pFormat
             [] -> noCons
             [(CInfo _ _ False _ _, parser)] ->
                 parser
-            [(CInfo _ _ True _ _, parser)] ->
+            [(CInfo _ _ True _ _, _)] ->
                 do let conNames = map (cname . fst) cons
                    mismatch "tagged type" (show conNames)
             (CInfo _ _ True _ _, _):_ ->
@@ -202,9 +193,10 @@ pFormat
 -- Unversioned serialization
 -------------------------------------------------------------------------------
 
+sFormatUnvers :: SerializationFormat PutM
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
+    { mkPutter = \_ _ _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , writeRepetition =
           \rep _ -> putListOf (\a -> writeSmart sFormatUnvers a Nothing) rep
     , writeString = \s -> writeRepetition sFormatUnvers s Nothing
@@ -217,9 +209,10 @@ sFormatUnvers
                     S.put False
     }
 
+pFormatUnvers :: ParseFormat Get
 pFormatUnvers
     = pFormat
-    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
     , readRepetition =
           do n <- S.get
              getSmartGet pFormatUnvers >>= replicateM n
