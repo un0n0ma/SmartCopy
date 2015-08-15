@@ -330,7 +330,7 @@ class GVersion (rep :: * -> *) where
 instance (GVersion f, Datatype d) => GVersion (M1 D d f) where
     gversions _ = gversions (P.Proxy :: P.Proxy f)
 
-instance (SmartCopy c, Typeable c, Generic c, ConNames (Rep c)) => GVersion (K1 a c) where
+instance (SmartCopy c, Typeable c) => GVersion (K1 a c) where
     gversions _ mIds =
         case mIds of
           Nothing ->
