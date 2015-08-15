@@ -234,6 +234,15 @@ instance
              return $
                  CInfo (T.pack $ conName (undefined :: M1 C c f p)) f1 True conInd ident : consB
 
+instance
+    ( GConList a, GConList b, ConNames a, ConNames b )
+    => GConList (a :+: b) where
+    mkGConList _ conInd ident
+        = do let conIndR = conInd + (fromIntegral $ length (gconNames (undefined :: a x)) - 1)
+             consL <- mkGConList (P.Proxy :: P.Proxy a) conInd ident
+             consR <- mkGConList (P.Proxy :: P.Proxy b) conIndR ident
+             return $ consL ++ consR
+
 instance (GConList f, Selector s) => GConList (M1 S s f) where
     mkGConList _ = mkGConList (P.Proxy :: P.Proxy f)
 
@@ -413,6 +422,15 @@ instance
            return $
                liftM (L1 . M1) (join $ join $ greadSmart fmt [] tyVer idsL)
                : map (liftM R1) parserListR
+
+instance
+    ( GParserList a, GParserList b, GSelectors a, GSelectors b )
+    => GParserList (a :+: b) where
+    mkGParserList fmt _ mIds =
+        do parserListL <- mkGParserList fmt (undefined :: a x) mIds
+           parserListR <- mkGParserList fmt (undefined :: b x) mIds
+           return $
+               map (liftM L1) parserListL ++ map (liftM R1) parserListR
 
 instance
     ( Constructor c, GConList f, GSmartCopy f, GSelectors f, GVersion f

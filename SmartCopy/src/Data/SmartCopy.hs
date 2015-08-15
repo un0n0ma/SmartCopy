@@ -33,6 +33,7 @@ module Data.SmartCopy
     )
 where
 
+import Data.SmartCopy.Generic ()
 import Data.SmartCopy.Instances ()
 import Data.SmartCopy.MonadTypesInstances (fromOk)
 import Data.SmartCopy.SmartCopy

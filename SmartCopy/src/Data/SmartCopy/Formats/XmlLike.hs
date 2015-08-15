@@ -30,34 +30,27 @@ import Data.SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
-import Data.String.Utils
-
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC (pack, unpack)
-import qualified Data.List as L
+import qualified Data.ByteString.Char8 as BSC (pack)
 import qualified Data.Map as M
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE (encodeUtf8, decodeUtf8)
+import qualified Data.Text.Encoding as TE (decodeUtf8)
 import qualified Data.Text.Lazy as TL
 import qualified Text.XML as X
 
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import Control.Applicative
 import Control.Arrow
-import Control.Monad.Loops
-import Data.Either (lefts, rights)
+import Data.Functor.Identity
 
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.State
-import "mtl" Control.Monad.Writer
 
 -------------------------------------------------------------------------------
 -- Run functions, versioned and unversioned
 -------------------------------------------------------------------------------
 
--- |Convert a datatype made an instance of SmartCopy into a versioned XML 
+-- |Convert a datatype made an instance of SmartCopy into a versioned XML
 -- representation.
 serializeSmart :: SmartCopy a => a -> X.Element
 serializeSmart a
@@ -96,16 +89,24 @@ serializeLastKnown a ids
 parseLastKnown :: SmartCopy a => X.Element -> Fail a
 parseLastKnown
     = runParser (smartGet pFormatBackComp)
-    
+
 -- |Convert an XML root element to a string, using Data.XML functions.
+toXmlString :: X.Element -> String
 toXmlString = TL.unpack . X.renderText X.def . (\m -> X.Document (X.Prologue [] Nothing []) m [])
 
+runSerialization :: forall a t.
+                    StateT [t] (StateT X.Element Identity) a -> X.Element
 runSerialization m = execState (evalStateT m []) emptyEl
 
+runParser :: forall a t.
+             FailT (StateT [X.Node] (StateT X.Element (StateT [t] Identity))) a
+          -> X.Element
+          -> Fail a
 runParser action el =
        evalState (evalStateT (evalStateT (runFailT action) [X.NodeElement el]) el) []
 
 -- |Obtain an XML root element from an input string, using Data.XML functions.
+fromXmlString :: String -> X.Element
 fromXmlString value =
     let (X.Document _ el _) = X.parseText_ X.def (TL.pack value)
     in el
@@ -113,10 +114,10 @@ fromXmlString value =
 -------------------------------------------------------------------------------
 -- Xml serialization unversioned
 -------------------------------------------------------------------------------
-
+sFormatUnvers :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
+    { mkPutter = \_ _ _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , writeRepetition =
           \ar _ ->
               do let arrAttr = M.fromList [("type", "array")]
@@ -150,7 +151,7 @@ sFormatUnvers
 -------------------------------------------------------------------------------
 -- Xml parsing unversioned
 -------------------------------------------------------------------------------
-
+pFormatUnvers :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))))
 pFormatUnvers
     = pFormat
     { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
@@ -178,20 +179,20 @@ pFormatUnvers
                          do put elNodes
                             lift $ lift $ lift $ put xs
                             liftM Just $ readSmart pFormatUnvers
-               cont@[X.NodeContent val] ->
+               cont@[X.NodeContent _] ->
                    do put cont
                       liftM Just $ readSmart pFormatUnvers
                h:_ -> mismatch "Maybe node" (show h)
     }
 
-    
 -------------------------------------------------------------------------------
 -- Xml serialization versioned with back-migration
 -------------------------------------------------------------------------------
+sFormatBackComp :: SerializationFormat (StateT [X.Node] (State X.Element))
 sFormatBackComp
     = sFormat
     { mkPutter =
-          \b ver mIds ->
+          \_ ver mIds ->
               case mIds of
                 Just _ ->
                     return $ \a ->
@@ -238,7 +239,8 @@ sFormatBackComp
                                 versHead <- get
                                 put $ replicate (length ar - 1) (X.NodeElement value)
                                 forM_ t $ \a ->
-                                     do withField sFormatBackComp $ writeSmart sFormatBackComp a Nothing
+                                     do withField sFormatBackComp $
+                                            writeSmart sFormatBackComp a Nothing
                                         field <- get
                                         put field
                                 res <- get
@@ -264,12 +266,11 @@ sFormatBackComp
                 Nothing ->
                     fail $ noIDListErr "SmartCopy a => Maybe a"
     }
-    
 
 -------------------------------------------------------------------------------
 -- Versioned parsing with back-migration
 -------------------------------------------------------------------------------
-
+pFormatBackComp :: ParseFormat (FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))))
 pFormatBackComp
     = pFormat
     { mkGetter =
@@ -292,7 +293,7 @@ pFormatBackComp
                                                return getter
                                            Left msg ->
                                                fail msg
-                                     Nothing -> 
+                                     Nothing ->
                                          return $ readSmart pFormatBackComp
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
@@ -301,7 +302,7 @@ pFormatBackComp
               do elem <- lift $ lift get
                  case cons of
                    [] -> noCons
-                   x:_ -> 
+                   x:_ ->
                        do let con = elName elem
                               conId = cidentifier (fst x) ++ "Ind"
                               conLkp = map (T.pack . (++) conId . show . cindex . fst) cons
@@ -330,13 +331,13 @@ pFormatBackComp
                X.NodeElement el:xs ->
                    case X.elementNodes el of
                      [] -> return Nothing
-                     elNodes ->
+                     _ ->
                          do put nodes
                             lift $ lift $ lift $ put xs
                             getSmartGet pFormatBackComp >>= liftM Just
-               cont@[X.NodeContent x] ->
+               cont@[X.NodeContent _] ->
                    do put cont
-                      getSmartGet pFormatBackComp >>= liftM Just 
+                      getSmartGet pFormatBackComp >>= liftM Just
                h:_ -> mismatch "Maybe node" (show h)
    }
    where readListVals :: SmartCopy a
@@ -379,15 +380,17 @@ sFormat
               do nodes <- get
                  case nodes of
                    [] -> return ()
-                   x@(X.NodeElement elem):xs ->
+                   (X.NodeElement elem):xs ->
                        do lift $ put elem
                           ma
                           resVers <- lift get
                           resNodes <- get
-                          let resElems = map (X.Element (X.elementName elem) (X.elementAttributes resVers)) [resNodes]
+                          let resElems =
+                                 map (X.Element (X.elementName elem) (X.elementAttributes resVers))
+                                     [resNodes]
                           let nodeEls = map X.NodeElement resElems
                           put $ xs++nodeEls
-                          lift $ put $ 
+                          lift $ put $
                               X.Element (X.elementName resVers)
                                         (X.elementAttributes resVers) resNodes
                    _ -> mismatch "NodeElement" (show nodes)
@@ -468,7 +471,7 @@ sFormat
                   put resNodes
                   lift $ put $ X.Element (makeName $ T.pack "PrimText") M.empty resNodes
     }
-                     
+
 -------------------------------------------------------------------------------
 -- Versioned parsing
 -------------------------------------------------------------------------------
@@ -496,7 +499,7 @@ pFormat
                                                return getter
                                            Left msg ->
                                                fail msg
-                                     Nothing -> 
+                                     Nothing ->
                                          return $ readSmart pFormat
                             _ ->
                                 return $ mismatch "NodeContent or NodeElement" (show nodeElems)
@@ -507,7 +510,7 @@ pFormat
                      parsers = map snd cons
                  case cons of
                    [] -> noCons
-                   _ -> 
+                   _ ->
                        do let con = elName elem
                           case lookup con (zip conNames parsers) of
                             Just parser ->
@@ -520,7 +523,7 @@ pFormat
               do nodes <- lift $ lift $ lift get
                  case nodes of
                    [] -> ma
-                   (x:xs) -> 
+                   (x:xs) ->
                        case x of
                          X.NodeElement elem ->
                              do case X.elementNodes elem of
@@ -532,7 +535,7 @@ pFormat
                                       case M.lookup "type" (X.elementAttributes elem) of
                                         Just "array" ->
                                             case X.elementNodes elem' of
-                                              [] -> 
+                                              [] ->
                                                   do lift $ lift $ lift $ put []
                                                      return ()
                                               _ ->
@@ -541,7 +544,7 @@ pFormat
                                         Just "opt" ->
                                             do lift $ lift $ put elem'
                                                lift $ lift $ lift $ put e
-                                        Nothing ->
+                                        _ ->
                                             lift $ lift $ put elem'
                                   nelems ->
                                       lift $ lift $ lift $ put nelems
@@ -621,13 +624,13 @@ pFormat
                X.NodeElement el:xs ->
                    case X.elementNodes el of
                      [] -> return Nothing
-                     elNodes ->
+                     _ ->
                          do put nodes
                             lift $ lift $ lift $ put xs
                             getSmartGet pFormat >>= liftM Just
-               cont@[X.NodeContent x] ->
+               cont@[X.NodeContent _] ->
                    do put cont
-                      getSmartGet pFormat >>= liftM Just 
+                      getSmartGet pFormat >>= liftM Just
                h:_ -> mismatch "Maybe node" (show h)
     , readBS =
           do nodes <- lift $ lift $ lift get
@@ -650,39 +653,44 @@ pFormat
                      _ -> mismatch "primitive char at toplevel" (show el')
                _ -> liftM T.pack $ getStringContent nodes
     }
-    where getIntContent (n:nodes) =
+    where getIntContent (n:_) =
               case n of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
                       [(int, [])] -> return int
                       _ -> mismatch "Int" (show n)
                 _ -> mismatch "NodeContent" (show n)
-          getDoubleContent (n:nodes) =
+          getIntContent _ = mismatch "NodeContent" ""
+          getDoubleContent (n:_) =
               case n of
                 X.NodeContent t ->
                     case reads (T.unpack t) of
                       [(double, [])] -> return double
                       _ -> mismatch "Double" (show n)
                 _ -> mismatch "NodeContent" (show n)
-          getBoolContent (n:nodes) =
+          getDoubleContent _ = mismatch "NodeContent" ""
+          getBoolContent (n:_) =
               case n of
                 X.NodeContent t
                     | T.unpack t == "True" -> return True
                     | T.unpack t == "False" -> return False
                     | otherwise -> mismatch "Bool" (show t)
                 _ -> mismatch "NodeContent" (show n)
-          getStringContent (n:nodes) =
+          getBoolContent _ = mismatch "NodeContent" ""
+          getStringContent (n:_) =
               case n of
                 X.NodeContent t ->
                     return $ T.unpack t
                 _ -> mismatch "NodeContent" (show n)
-          getCharContent (n:nodes) =
+          getStringContent _ = mismatch "NodeContent" ""
+          getCharContent (n:_) =
               case n of
                 X.NodeContent t ->
                     case T.unpack t of
                       [c] -> return c
                       _ -> mismatch "Char" (show t)
                 _ -> mismatch "NodeContent" (show n)
+          getCharContent _ = mismatch "NodeContent" ""
           readListVals :: SmartCopy a
                        => [X.Node]
                        -> FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))) [a]
@@ -694,32 +702,38 @@ pFormat
 -------------------------------------------------------------------------------
 -- Helper functions
 -------------------------------------------------------------------------------
-
+emptyEl :: X.Element
 emptyEl = X.Element (X.Name T.empty Nothing Nothing) M.empty []
 
+makeName :: T.Text -> X.Name
 makeName t = X.Name t Nothing Nothing
 
+elName :: X.Element -> T.Text
 elName = X.nameLocalName . X.elementName
 
+makeEmptyNode :: T.Text -> X.Node
 makeEmptyNode text = X.NodeElement $ X.Element (makeName text) M.empty []
 
+pop :: FailT (StateT [X.Node] (StateT X.Element (State [X.Node]))) X.Node
 pop =
     do nodes <- get
        case nodes of
          [] -> return $ X.NodeElement emptyEl
          h:t -> do { put t; return h }
 
+readVersion :: Monad m => X.Element -> m (Maybe (Version a))
 readVersion el =
     do let attribs = map ((X.nameLocalName . fst) &&& snd)
                          (M.toList $ X.elementAttributes el)
-           vers = lookup (T.pack "version") attribs 
+           vers = lookup (T.pack "version") attribs
        case vers of
          Just vText ->
              case (reads . T.unpack) vText of
                [(int,[])] -> return $ Just $ Version int
                _ -> mismatch "int32 for version" (show vText)
          Nothing -> return Nothing
-              
+
+getFields :: ConstrInfo -> [T.Text] 
 getFields cons
     = case cfields cons of
         Empty -> []
