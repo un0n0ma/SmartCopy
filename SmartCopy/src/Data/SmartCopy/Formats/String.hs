@@ -31,7 +31,6 @@ import Data.SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 import Data.List.Utils (startswith)
 
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.List as L (span)
 import qualified Data.Text as T
@@ -39,7 +38,7 @@ import qualified Data.Text as T
 -------------------------------------------------------------------------------
 -- STDLIB
 -------------------------------------------------------------------------------
-import "mtl" Control.Monad.Reader
+import Control.Monad.Identity
 import "mtl" Control.Monad.State
 import "mtl" Control.Monad.Writer
 
@@ -87,21 +86,22 @@ parseLastKnown :: SmartCopy a => String -> Fail a
 parseLastKnown =
     runParser (smartGet pFormatBackComp)
 
+runParser :: forall s a. FailT (StateT s Identity) a -> s -> Fail a
 runParser action = evalState (runFailT action)
 
 -------------------------------------------------------------------------------
 -- Unversioned serialization
 -------------------------------------------------------------------------------
-
+sFormatUnvers :: SerializationFormat (Writer String)
 sFormatUnvers
     = sFormat
-    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
+    { mkPutter = \_ _ _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , writeRepetition =
           \rep _ ->
               do tell "["
                  case length rep of
                    0 -> return ()
-                   n -> do mapM_ (\a ->
+                   _ -> do mapM_ (\a ->
                                   do writeSmart sFormatUnvers a Nothing
                                      tell ",") (init rep)
                            writeSmart sFormatUnvers (last rep) Nothing
@@ -117,6 +117,7 @@ sFormatUnvers
 -- Unversioned parsing
 -------------------------------------------------------------------------------
 
+pFormatUnvers :: ParseFormat (FailT (State String))
 pFormatUnvers
     = pFormat
     { readRepetition =
@@ -130,7 +131,7 @@ pFormatUnvers
                             put list
                             res <- mapWithDelim (readSmart pFormatUnvers) list []
                             put xs
-                            return res 
+                            return res
                         _ -> mismatch "]" rest
                _      -> mismatch "[" str'
     , readMaybe =
@@ -146,6 +147,7 @@ pFormatUnvers
 -- Versioned serialization with back-migration
 -------------------------------------------------------------------------------
 
+sFormatBackComp :: SerializationFormat (Writer String)
 sFormatBackComp
     = sFormat
     { mkPutter =
@@ -189,12 +191,13 @@ sFormatBackComp
                 Nothing ->
                     fail $ noIDListErr "SmartCopy a => Maybe a"
      }
-    where wrapM m = do { tell " ("; m; tell ")" }
+    where wrapM m = do { tell " ("; _ <- m; tell ")" }
 
 -------------------------------------------------------------------------------
 -- Versioned parsing with back-migration
 -------------------------------------------------------------------------------
 
+pFormatBackComp :: ParseFormat (FailT (State String))
 pFormatBackComp
     = pFormat
     { mkGetter =
@@ -204,7 +207,7 @@ pFormatBackComp
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
                         case version of
-                          Just v -> 
+                          Just v ->
                               case constructGetterFromVersion pFormatBackComp v kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
@@ -223,9 +226,9 @@ pFormatBackComp
                       case lookup con (zip conLkp parsers) of
                         Just parser ->
                            parser
-                        f -> conLookupErr (show con) (show conLkp)
+                        _ -> conLookupErr (show con) (show conLkp)
     , readRepetition =
-          do readVersion
+          do _ <- readVersion
              str' <- get
              let str = filter (/=' ') str'
              case str of
@@ -294,9 +297,8 @@ sFormat
     , writeBS = tell . BSC.unpack
     , writeText = tell . T.unpack
     }
-    where wrapM m = do { tell " ("; m; tell ")" }
+    where wrapM m = do { tell " ("; _ <- m; tell ")" }
 
-                
 -------------------------------------------------------------------------------
 -- Versioned parsing
 -------------------------------------------------------------------------------
@@ -311,7 +313,7 @@ pFormat
                      do let kind = kindFromProxy (Proxy :: Proxy a)
                         version <- readVersion
                         case version of
-                          Just v -> 
+                          Just v ->
                               case constructGetterFromVersion pFormat v kind of
                                       Right getter -> return getter
                                       Left msg -> fail msg
@@ -329,15 +331,15 @@ pFormat
                          case lookup (T.pack con) (zip conNames parsers) of
                            Just parser ->
                               parser
-                           f -> conLookupErr (show con) (show conNames)
+                           _ -> conLookupErr (show con) (show conNames)
     , readField =
           \ma ->
-              do rest <- readOpen
+              do _ <- readOpen
                  res <- ma
                  _ <- readClose
                  return res
     , readRepetition =
-          do readVersion
+          do _ <- readVersion
              str' <- get
              let str = filter (/=' ') str'
              case str of
@@ -359,7 +361,7 @@ pFormat
                [(num, xs)] ->
                    do put xs
                       return num
-               [] -> mismatch "Int" prim
+               _ -> mismatch "Int" prim
     , readChar =
           do str <- get
              let prim = filter (/=' ') str
@@ -380,7 +382,7 @@ pFormat
                [(num, xs)] ->
                    do put xs
                       return num
-               [] -> mismatch "Double" prim
+               _ -> mismatch "Double" prim
     , readString =
           do str <- get
              let (prim, rest) = delimit $ filter (/=' ') str
@@ -440,7 +442,7 @@ readOpen =
          _ ->
             fail $ "No opening parenthesis found at " ++ str ++ "."
 
-
+hasNested :: [Char] -> Bool
 hasNested str = let (untilClosedPar, _) = L.span (/=')') str
                     (untilOpenPar, _) = L.span (/='(') str
                 in length untilClosedPar >= length untilOpenPar
@@ -454,6 +456,8 @@ readClose =
                 return ""
          _ -> fail $ "No closing parenthesis found at " ++ str ++ "."
 
+mapWithDelim :: forall (m :: * -> *) t. MonadState [Char] m
+             => m t -> [Char] -> [t] -> m [t]
 mapWithDelim mb list acc
     | null list
     = return []
@@ -467,6 +471,7 @@ mapWithDelim mb list acc
                    parseElem <- mb
                    return $ acc ++ [parseElem]
 
+readVersion :: forall a. FailT (State String) (Maybe (Version a))
 readVersion =
     do str' <- get
        let str = filter (/=' ') str'
@@ -481,4 +486,5 @@ readVersion =
                 _ -> mismatch "int32" after
          _ -> return Nothing
 
+delimit :: [Char] -> ([Char], [Char])
 delimit = L.span (/=')')
