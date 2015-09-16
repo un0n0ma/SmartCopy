@@ -13,8 +13,11 @@ import Data.SmartCopy.SmartCopy
 -- SITE-PACKAGES
 -------------------------------------------------------------------------------
 import qualified Data.ByteString as BS
+import qualified Data.Map as M
 import qualified Data.SafeCopy as SC
+import qualified Data.Strict.Tuple as STup
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import Data.Int (Int32)
 
@@ -34,6 +37,11 @@ instance SmartCopy Int where
     identifier = ID "Int"
     readSmart = readInt
     writeSmart fmt i _ = writeInt fmt i
+
+instance SmartCopy Integer where
+    identifier = ID "Integer"
+    readSmart fmt = liftM fromIntegral $ readInt fmt
+    writeSmart fmt i _ = writeInt fmt $ fromInteger i
 
 instance SmartCopy Int32 where
     identifier = ID "Int32"
@@ -84,3 +92,19 @@ instance SmartCopy T.Text where
     identifier = ID "Data.Text"
     readSmart = readText
     writeSmart fmt t _ = writeText fmt t
+
+instance (Ord k, SmartCopy k, SmartCopy v) => SmartCopy (M.Map k v) where
+    identifier = ID "Data.Map"
+    readSmart fmt = liftM M.fromList (readRepetition fmt)
+    writeSmart fmt map = writeRepetition fmt (M.toList map)
+
+instance SmartCopy a => SmartCopy (V.Vector a) where
+    identifier = ID "Data.Vector"
+    readSmart fmt = liftM V.fromList (readRepetition fmt)
+    writeSmart fmt v = writeRepetition fmt (V.toList v)
+
+instance (SmartCopy a, SmartCopy b) => SmartCopy (STup.Pair a b) where
+    identifier = ID "Data.Strict.Tuple.Pair"
+    readSmart fmt = do (tup1, tup2) <- readSmart fmt
+                       return $ tup1 STup.:!: tup2
+    writeSmart fmt (a STup.:!: b) = writeSmart fmt (a, b)

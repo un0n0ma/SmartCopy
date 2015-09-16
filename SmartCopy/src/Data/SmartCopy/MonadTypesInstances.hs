@@ -23,14 +23,12 @@ import Control.Monad.IO.Class
 import "mtl" Control.Monad.Identity
 import "mtl" Control.Monad.Reader
 import "mtl" Control.Monad.State
-import "mtl" Control.Monad.Trans (MonadTrans(..))
-import "mtl" Control.Monad.Writer
 
 -- |An error handling monad.
 newtype FailT m a = FailT { runFailT :: m (Fail a) }
 
 -- |Represents values that can be either an error or correct, where the Fail
--- constructor is used to hold an error message and the Ok constructor is 
+-- constructor is used to hold an error message and the Ok constructor is
 -- used to hold a correct value of type a.
 data Fail a
     = Fail String
@@ -49,13 +47,13 @@ fromEitherFail (Right ok) = Ok ok
 
 instance Functor Fail where
     fmap f (Ok a) = Ok $ f a
-    fmap f (Fail msg) = Fail msg
+    fmap _ (Fail msg) = Fail msg
 
 instance Applicative Fail where
     pure = Ok
     f <*> (Ok b) = do f' <- f
                       pure $ f' b
-    f <*> (Fail a) = Fail a
+    _ <*> (Fail a) = Fail a
 
 instance (Applicative m, Monad m) => Applicative (FailT m) where
     pure = FailT . pure . Ok

@@ -18,8 +18,10 @@ module Data.SmartCopy.Formats.JSON
        , parseLastKnown
        , encodeUnvers
        , encodeSmart
+       , encodeLastKnown
        , decodeUnvers
        , decodeSmart
+       , decodeLastKnown
        )
 where
 
@@ -35,15 +37,13 @@ import Data.SmartCopy.SmartCopy
 -------------------------------------------------------------------------------
 
 import Data.Aeson.Encode (encodeToTextBuilder)
-import Data.Aeson.Utils (fromFloatDigits)
-import Data.Int (Int32)
+import Data.Scientific (fromFloatDigits)
 import Data.Text.Lazy.Builder (toLazyText)
-import Data.Text.Lazy.Encoding (encodeUtf8, decodeUtf8)
+import Data.Text.Lazy.Encoding (encodeUtf8)
 
 import qualified Data.Aeson as Json (Value(..), object, decode)
 import qualified Data.Aeson.Types as JT (Pair)
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -53,13 +53,11 @@ import qualified Data.Vector as V
 -- STDLIB
 -------------------------------------------------------------------------------
 import "mtl" Control.Monad.Reader
-import "mtl" Control.Monad.Writer
 import "mtl" Control.Monad.State
 
-import Control.Applicative
 import Control.Arrow (first)
+import Control.Monad.Identity (Identity)
 import Data.Maybe
-import Data.Either (rights, lefts, either)
 
 -- |Deserialize a JSON value from a lazy ByteString using the corresponding
 -- Aeson function and when successful try to parse the value as an unversioned
@@ -76,6 +74,7 @@ decodeSmart bs = maybe (Fail $ decodeErr bs) parseSmart (Json.decode bs :: Maybe
 decodeLastKnown :: SmartCopy a => LBS.ByteString -> Fail a
 decodeLastKnown bs = maybe (Fail $ decodeErr bs) parseLastKnown (Json.decode bs :: Maybe Json.Value)
 
+decodeErr :: forall a. Show a => a -> [Char]
 decodeErr bs = "Failed while decoding ByteString " ++ show bs ++ " into Json Value."
 
 -- |Serialize a datatype as a JSON value without handling its version and encode
@@ -83,7 +82,7 @@ decodeErr bs = "Failed while decoding ByteString " ++ show bs ++ " into Json Val
 encodeUnvers :: SmartCopy a => a -> LBS.ByteString
 encodeUnvers = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeUnvers
 
--- |Serialize a datatype as a versioned JSON value and encode the value as a 
+-- |Serialize a datatype as a versioned JSON value and encode the value as a
 -- lazy ByteString using the corresponding Aeson function.
 encodeSmart :: SmartCopy a => a -> LBS.ByteString
 encodeSmart = encodeUtf8 . toLazyText . encodeToTextBuilder . serializeSmart
@@ -126,8 +125,12 @@ serializeLastKnown a ids = runSerialization (smartPutLastKnown sFormatBackComp a
 parseLastKnown :: SmartCopy a => Json.Value -> Fail a
 parseLastKnown = runParser (smartGet pFormatBackComp)
 
+runSerialization :: forall a b.
+                    StateT (Either Json.Value b) (StateT Json.Value Identity) a -> Json.Value
 runSerialization m = execState (evalStateT m (Left Json.Null)) Json.Null
 
+runParser :: forall s a t.
+             FailT (ReaderT s (StateT s (StateT [t] Identity))) a -> s -> Fail a
 runParser action value =
     evalState (evalStateT (runReaderT (runFailT action) value) value) []
 
@@ -135,6 +138,7 @@ runParser action value =
 --  Versioned serialization with back-migration
 -------------------------------------------------------------------------------
 
+sFormatBackComp :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 sFormatBackComp
     = sFormat
     { mkPutter =
@@ -155,14 +159,14 @@ sFormatBackComp
           \cons ma ->
               do let ident = T.pack $ cidentifier cons ++ ":" ++ show (cindex cons)
                  if ctagged cons
-                    then 
+                    then
                          case cfields cons of
                            Empty ->
                              lift $ put $ Json.String ident
                            NF 0 ->
                              lift $ put $ Json.object [("tag", Json.String ident),
                                                        ("contents", Json.Array V.empty)]
-                           NF i ->
+                           NF _ ->
                              do put $ Left $ Json.Array V.empty
                                 _ <- ma
                                 Left res <- get
@@ -175,7 +179,7 @@ sFormatBackComp
                                 put $ Right $ map (first (T.pack . show)) fieldsWithInd
                                 _ <- ma
                                 Right res <- get
-                                let resObj 
+                                let resObj
                                      = Json.object $ ("tag", Json.String ident):res
                                 lift $ put resObj
                     else case cfields cons of
@@ -202,7 +206,7 @@ sFormatBackComp
                           do smartPutLastKnown sFormatBackComp x allIds
                              ar' <- lift get
                              lift $ put $ array [ar']
-                      xs  ->
+                      _  ->
                           do accArray [] ar (\a -> writeSmart sFormatBackComp a mIds)
                              ar <- lift get
                              lift $ put $ arConcat ar
@@ -224,30 +228,30 @@ sFormatBackComp
 -------------------------------------------------------------------------------
 --  Versioned parsing with back-migration
 -------------------------------------------------------------------------------
+pFormatBackComp :: ParseFormat (FailT (ReaderT Json.Value (StateT Json.Value CurrentFields)))
 pFormatBackComp
     = pFormat
     { mkGetter =
-          \_ dupVers ->
+          \_ _ ->
               return $
               do (version, rest) <- readVersion
                  case version of
                    Just v ->
                        case constructGetterFromVersion pFormatBackComp v kind of
                          Right getter ->
-                             local (const rest) getter 
+                             local (const rest) getter
                          Left msg -> fail msg
                    Nothing -> readSmart pFormatBackComp
     , readCons =
           \cons ->
               do val <- ask
                  let parsers = map snd cons
-                     conFields = map (cfields . fst) cons
                  case cons of
                    [] ->
                        noCons
                    [(x, parser)] ->
                        do let conId = cidentifier x ++ ":"
-                              conLkp@(cn:_) = map (T.pack . (++) conId . show . cindex . fst) cons
+                              cn:_ = map (T.pack . (++) conId . show . cindex . fst) cons
                           case val of
                             obj@(Json.Object _) ->
                                 do _ <- putFieldsFromObj cn cons
@@ -342,14 +346,16 @@ pFormatBackComp
                ar@(Json.Array _) ->
                   case fromArray ar of
                     Json.Null:xs -> return Nothing
-                    xs ->
+                    _ ->
                         do lift $ put ar
                            liftM Just $ smartGet pFormatBackComp
                val ->
                    do lift $ put val
                       liftM Just $ smartGet pFormatBackComp
     }
-    where putFieldsFromObj con cons@(x:_) = 
+    where putFieldsFromObj con [] =
+              fail $ "Parsing failure. No fields found for " ++ show con
+          putFieldsFromObj con cons@(x:_) =
               do let conFields = map (cfields . fst) cons
                      conId = cidentifier (fst x) ++ ":"
                      conLkp = map (T.pack . (++) conId . show . cindex . fst) cons
@@ -366,6 +372,7 @@ pFormatBackComp
 --  Versioned serialization
 -------------------------------------------------------------------------------
 
+sFormat :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 sFormat
     = sFormatUnvers
     { mkPutter =
@@ -387,7 +394,7 @@ sFormat
                         NF 0 ->
                           lift $ put $ Json.object [("tag", Json.String $ cname cons),
                                                     ("contents", Json.Array V.empty)]
-                        NF i ->
+                        NF _ ->
                           do put $ Left $ Json.Array V.empty
                              _ <- ma
                              Left res <- get
@@ -400,7 +407,7 @@ sFormat
                              put $ Right $ map (first (T.pack . show)) fieldsWithInd
                              _ <- ma
                              Right res <- get
-                             let resObj 
+                             let resObj
                                   = Json.object $ ("tag", Json.String $ cname cons):res
                              lift $ put resObj
                  else case cfields cons of
@@ -425,7 +432,6 @@ sFormat
                           let [(key, Json.Null)] = M.toList o
                           _ <- ma
                           value <- lift get
-                          let innerObj = Json.Object $ M.fromList [(key, value)]
                           put $ Right $ (index, Json.object [(key, value)]):rest
                    Left (Json.Array ar) ->
                        do ma
@@ -441,7 +447,7 @@ sFormat
                     do smartPut sFormat x
                        ar' <- lift get
                        lift $ put $ array [ar']
-                xs  ->
+                _  ->
                     do accArray [] ar (\a -> writeSmart sFormat a Nothing)
                        ar <- lift get
                        lift $ put $ arConcat ar
@@ -453,12 +459,10 @@ sFormat
                     do lift $ put Json.Null
                        return ()
     }
-    where mkArray (Json.Array ar) i = Json.Array $ ar `V.snoc` Json.Number i
-          mkArray val i = array $ val:[Json.Number i]
-          takeEmptyField [] notnull =
-              fail "Encoding failure. Got more fields than expected for constructor."
-          takeEmptyField map notnull =
+    where takeEmptyField map notnull =
                  case map of
+                   [] ->
+                       fail "Encoding failure. Got more fields than expected for constructor."
                    h@(_, Json.Object o):t ->
                        case M.toList o of
                          [(_, Json.Null)] ->
@@ -476,14 +480,14 @@ pFormat :: ParseFormat (FailT (ReaderT Json.Value (StateT Json.Value CurrentFiel
 pFormat
     = ParseFormat
     { mkGetter =
-          \_ dupVers ->
+          \_ _dupVers ->
               return $
               do (version, rest) <- readVersion
                  case version of
                    Just v ->
                        case constructGetterFromVersion pFormat v kind of
                          Right getter ->
-                             local (const rest) getter 
+                             local (const rest) getter
                          Left msg -> fail msg
                    Nothing -> readSmart pFormat
     , readCons =
@@ -491,7 +495,6 @@ pFormat
               do val <- ask
                  let conNames@(cn:_) = map (cname . fst) cons
                      parsers = map snd cons
-                     conFields = map (cfields . fst) cons
                  case cons of
                    [] ->
                        noCons
@@ -593,14 +596,17 @@ pFormat
                           case labField of
                             Just (Json.Object obj') ->
                                 case M.toList obj' of
-                                  [(label, val)] ->
+                                  [(_, val)] ->
                                       do res <- local (const val) ma
                                          lift $ lift $ lift $ put t
                                          return res
-                                  f ->
+                                  _ ->
                                       mismatch ("labeled field " ++ T.unpack label) (show obj')
+                            Just other ->
+                                mismatch ("labeled field " ++ T.unpack label) (show other)
                             Nothing ->
                                 mismatch ("field with index " ++ T.unpack index) (show obj)
+                            
     , readRepetition =
           do val <- ask
              case val of
@@ -620,7 +626,7 @@ pFormat
                     return $ floor n
                ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Number n:xs ->
+                        Json.Number n:_ ->
                             return $ floor n
                         _ ->
                             mismatch "Number" (show x)
@@ -637,7 +643,7 @@ pFormat
                          mismatch "Char" str
                ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs ->
+                     Json.String s:_ ->
                          let str = T.unpack s in
                          case str of
                            [x] ->
@@ -652,7 +658,7 @@ pFormat
                Json.Bool b -> return b
                ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Bool b:xs -> return b
+                        Json.Bool b:_ -> return b
                         _ -> mismatch "Bool" (show x)
                _ -> mismatch "Bool" (show x)
     , readDouble =
@@ -661,7 +667,7 @@ pFormat
                Json.Number d -> return $ realToFrac d
                ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Number d:xs -> return $ realToFrac d
+                        Json.Number d:_ -> return $ realToFrac d
                         _ -> mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readString =
@@ -670,7 +676,7 @@ pFormat
                Json.String s -> return $ T.unpack s
                ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs -> return $ T.unpack s
+                     Json.String s:_ -> return $ T.unpack s
                      _ -> mismatch "String" (show x)
                _ -> mismatch "String" (show x)
     , readMaybe =
@@ -679,8 +685,8 @@ pFormat
                Json.Null -> return Nothing
                ar@(Json.Array _) ->
                   case fromArray ar of
-                    Json.Null:xs -> return Nothing
-                    xs ->
+                    Json.Null:_ -> return Nothing
+                    _ ->
                         do lift $ put ar
                            liftM Just $ smartGet pFormat
                val ->
@@ -692,7 +698,7 @@ pFormat
                Json.String s -> return $ TE.encodeUtf8 s
                ar@(Json.Array _) ->
                 case fromArray ar of
-                  Json.String s:xs -> return $ TE.encodeUtf8 s
+                  Json.String s:_ -> return $ TE.encodeUtf8 s
                   _ -> mismatch "ByteString" (show x)
                _ -> mismatch "ByteString" (show x)
     , readText =
@@ -701,11 +707,11 @@ pFormat
                Json.String s -> return s
                ar@(Json.Array _) ->
                 case fromArray ar of
-                  Json.String s:xs -> return s
+                  Json.String s:_ -> return s
                   _ -> mismatch "Text" (show x)
                _ -> mismatch "Text" (show x)
     }
-    where putFieldsFromObj con cons = 
+    where putFieldsFromObj con cons =
               do let conFields = map (cfields . fst) cons
                      conNames = map (cname . fst) cons
                      Just cf = lookup con (zip conNames conFields)
@@ -716,7 +722,6 @@ pFormat
                              LF lbs ->
                                  zip [0..] (map (Just . T.unpack) lbs)
                  lift $ lift $ lift $ put fields
-    
 -------------------------------------------------------------------------------
 -- Unversioned serialization
 -------------------------------------------------------------------------------
@@ -724,7 +729,7 @@ pFormat
 sFormatUnvers :: SerializationFormat (StateT (Either Json.Value [JT.Pair]) (State Json.Value))
 sFormatUnvers
     = SerializationFormat
-    { mkPutter = \_ v _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
+    { mkPutter = \_ _ _ -> return $ \a -> writeSmart sFormatUnvers a Nothing
     , withCons =
           \cons ma ->
               if ctagged cons
@@ -734,7 +739,7 @@ sFormatUnvers
                         NF 0 ->
                           lift $ put $ Json.object [("tag", Json.String $ cname cons),
                                                     ("contents", Json.Array V.empty)]
-                        NF i ->
+                        NF _ ->
                           do put $ Left $ Json.Array V.empty
                              _ <- ma
                              Left res <- get
@@ -745,7 +750,7 @@ sFormatUnvers
                           do put $ Right $ zip ls (repeat Json.Null)
                              _ <- ma
                              Right res <- get
-                             let resObj 
+                             let resObj
                                   = Json.object $ ("tag", Json.String $ cname cons):res
                              lift $ put resObj
                  else case cfields cons of
@@ -760,7 +765,6 @@ sFormatUnvers
                             _ <- ma
                             Left res <- get
                             lift $ put $ arConcat res
-    
     , withField =
           \ma ->
               do fields <- get
@@ -775,7 +779,6 @@ sFormatUnvers
                           value <- lift get
                           put $ Left $ Json.Array $ ar `V.snoc` value
                    f -> fail $ "No fields found at " ++ show f
-    
     , writeRepetition =
           \ar _ ->
               case ar of
@@ -828,10 +831,9 @@ sFormatUnvers
               do lift $ put $ Json.String text
                  return ()
     }
-    where takeEmptyField [] notnull =
-              fail "Encoding failure. Got more fields than expected for constructor."
-          takeEmptyField map notnull =
+    where takeEmptyField map notnull =
               case map of
+                [] -> fail "Encoding failure. Got more fields than expected for constructor."
                 h@(_, Json.Null):t -> return (h, notnull ++ t)
                 h:t -> takeEmptyField t (h:notnull)
 
@@ -842,13 +844,12 @@ sFormatUnvers
 pFormatUnvers :: ParseFormat (FailT (ReaderT Json.Value (State [String])))
 pFormatUnvers
     = ParseFormat
-    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers 
+    { mkGetter = \_ _ -> return $ readSmart pFormatUnvers
     , readCons =
         \cons ->
             do val <- ask
                let conNames@(cn:_) = map (cname . fst) cons
                    parsers = map snd cons
-                   conFields = map (cfields . fst) cons
                case cons of
                  [] -> noCons
                  [(h, parser)] -> case val of
@@ -908,7 +909,11 @@ pFormatUnvers
                                 local (const tag) parser
                             Nothing ->
                                 conLookupErr (show tag) (show conNames)
-    , readField =                      
+                      _ ->
+                          fail $
+                              "Parsing failure. Was expecting constructor value at "
+                              ++ show val ++ "."
+    , readField =
           \ma ->
               do fields <- lift $ lift get
                  case fields of
@@ -918,7 +923,7 @@ pFormatUnvers
                          [(num, "")] ->
                              do v <- ask
                                 case v of
-                                  ar@(Json.Array a)  ->
+                                  ar@(Json.Array _)  ->
                                       do res <-
                                            local (const $ array $ drop num $ fromArray ar) ma
                                          put t
@@ -927,7 +932,7 @@ pFormatUnvers
                                       do res <- local (const n) ma
                                          put t
                                          return res
-                                          
+
                          [] ->
                              do o@(Json.Object _) <- ask
                                 let field = T.pack h
@@ -937,7 +942,11 @@ pFormatUnvers
                                          put t
                                          return res
                                   Nothing ->
-                                      fail $ show o ++ "Fields: " ++ show fields
+                                      fail $ "Didn't find field "
+                                           ++ show o ++ " in object " ++ show o ++ "."
+                         _ -> fail $ "Parsing failure.\
+                                     \ Ambiguous parse when reading field index at " ++
+                                     show h
     , readRepetition =
           do val <- ask
              case val of
@@ -955,7 +964,7 @@ pFormatUnvers
                     return $ floor n
                ar@(Json.Array _) ->
                       case fromArray ar of
-                        Json.Number n:xs -> return $ floor n
+                        Json.Number n:_ -> return $ floor n
                         _ -> mismatch "Number" (show x)
                _ -> mismatch "Number" (show x)
     , readChar =
@@ -968,7 +977,7 @@ pFormatUnvers
                      _ -> mismatch "Char" str
                ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs ->
+                     Json.String s:_ ->
                          let str = T.unpack s in
                          case str of
                            [c] -> return c
@@ -981,7 +990,7 @@ pFormatUnvers
                (Json.Bool b) -> return b
                ar@(Json.Array _) ->
                 case fromArray ar of
-                  Json.Bool b:xs -> return b
+                  Json.Bool b:_ -> return b
                   _ -> mismatch "Bool" (show x)
                _ -> mismatch "Bool" (show x)
     , readDouble =
@@ -999,7 +1008,7 @@ pFormatUnvers
                (Json.String s) -> return $ T.unpack s
                ar@(Json.Array _) ->
                 case fromArray ar of
-                  Json.String s:xs -> return$ T.unpack s
+                  Json.String s:_ -> return$ T.unpack s
                   _ -> mismatch "String" (show x)
                _ -> mismatch "String" (show x)
     , readMaybe =
@@ -1008,16 +1017,16 @@ pFormatUnvers
                Json.Null -> return Nothing
                ar@(Json.Array _) ->
                   case fromArray ar of
-                    Json.Null:xs -> return Nothing
-                    xs -> liftM Just $ readSmart pFormatUnvers
-               xs -> liftM Just $ readSmart pFormatUnvers
+                    Json.Null:_ -> return Nothing
+                    _ -> liftM Just $ readSmart pFormatUnvers
+               _ -> liftM Just $ readSmart pFormatUnvers
     , readBS =
           do x <- ask
              case x of
                Json.String s -> return $ TE.encodeUtf8 s
                ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs -> return $ TE.encodeUtf8 s
+                     Json.String s:_ -> return $ TE.encodeUtf8 s
                      _ -> mismatch "ByteString" (show x)
                _ -> mismatch "ByteString" (show x)
     , readText =
@@ -1026,11 +1035,11 @@ pFormatUnvers
                Json.String s -> return s
                ar@(Json.Array _) ->
                    case fromArray ar of
-                     Json.String s:xs -> return s
+                     Json.String s:_ -> return s
                      _ -> mismatch "Text" (show x)
                _ -> mismatch "Text" (show x)
     }
-    where putFieldsFromObj con cons = 
+    where putFieldsFromObj con cons =
               do let conFields = map (cfields . fst) cons
                      conNames = map (cname . fst) cons
                      Just cf = lookup con (zip conNames conFields)
@@ -1050,18 +1059,26 @@ pFormatUnvers
 --  Helper functions
 -------------------------------------------------------------------------------
 
+fromObject :: Json.Value -> [(T.Text, Json.Value)]
 fromObject (Json.Object o) = M.toList o
 fromObject val = [("object", val)]
 
+fromArray :: Json.Value -> [Json.Value]
 fromArray (Json.Array a) = V.toList a
 fromArray val = [val]
 
+array :: [Json.Value] -> Json.Value
 array = Json.Array . V.fromList
+
+object :: M.HashMap T.Text Json.Value -> Json.Value
 object = Json.Object
 
-accArray xs [] wf = return ()
+accArray :: forall t t1 (t2 :: (* -> *) -> * -> *) (m :: * -> *).
+            (MonadState Json.Value m, MonadTrans t2, Monad (t2 m))
+         => [Json.Value] -> [t] -> (t -> t2 m t1) -> t2 m ()
+accArray _ [] _ = return ()
 accArray xs (el:ar) wf =
-       do wf el
+       do _ <- wf el
           val' <- lift get
           let val = case val' of
                       Json.Array ar' -> V.toList ar'
@@ -1082,11 +1099,19 @@ arConcat a@(Json.Array ar)
         _ -> a
 arConcat o = o
 
+putFieldsFromArr :: forall a t t1 t2 m.
+                    ( MonadState [(Int, Maybe a)] m, MonadTrans t2, MonadTrans t1
+                    , MonadTrans t, Monad (t2 m), Monad (t1 (t2 m)))
+                 => Json.Value -> t (t1 (t2 m)) ()
 putFieldsFromArr ar =
     do let l = length $ fromArray ar
            fields = zip [0..l-1] (repeat Nothing)
        lift $ lift $ lift $ put fields
 
+readVersion ::
+    forall a.
+    FailT
+    (ReaderT Json.Value (StateT Json.Value CurrentFields)) (Maybe (Version a), Json.Value)
 readVersion =
     do val <- lift get
        case val of
@@ -1097,22 +1122,25 @@ readVersion =
              _ ->
                  case M.toList obj of
                    [] -> return (Nothing, o)
-                   (index, Json.Object obj'):xs ->
+                   (_index, Json.Object obj'):xs ->
                        case M.toList obj' of
-                         [(label, cont)] ->
+                         [(_label, cont)] ->
                              do lift $ put cont
                                 v <- readVersion
                                 lift $ put $ Json.object xs
                                 return v
-                   (k, v):xs ->
+                         objs ->
+                             fail $ "Parsing failure. Was expecting single object at "
+                                  ++ show objs ++ "."
+                   (_, v):xs ->
                        do lift $ put v
                           v <- readVersion
                           lift $ put $ Json.object xs
                           return v
-         a@(Json.Array ar) ->
+         Json.Array ar ->
             case V.length ar of
               0 -> return (Nothing, Json.Null)
-              n ->
+              _ ->
                   case V.toList ar of
                     [val] ->
                         do lift $ put val
@@ -1124,6 +1152,7 @@ readVersion =
                            return (v, array $ rest:xs)
          v -> return (Nothing, v)
 
+withoutVersion :: Json.Value -> Json.Value
 withoutVersion o@(Json.Object obj)
     | M.member (T.pack "version") obj && M.member (T.pack "object") obj
     = fromJust $ M.lookup (T.pack "object") obj
